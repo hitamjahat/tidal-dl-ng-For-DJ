@@ -4,8 +4,12 @@ Integrates the playlist membership management system into the main window,
 handling initialization, signal connections, and UI updates.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from PySide6 import QtCore
-from tidalapi import Track
+from tidalapi.media import Track
 
 from tidal_dl_ng.gui.dialog_playlist_manager import PlaylistManagerDialog
 from tidal_dl_ng.gui.playlist_membership import (
@@ -21,9 +25,20 @@ from tidal_dl_ng.model.gui_data import StatusbarMessage
 class PlaylistMembershipMixin:
     """Mixin for playlist membership management integration into MainWindow."""
 
+    PLAYLISTS_COLUMN: int = 9
+    OBJ_COLUMN: int = 1
+
+    # Attributes provided by MainWindow runtime composition.
+    tr_results: Any
+    proxy_tr_results: Any
+    model_tr_results: Any
+    tidal: Any
+    threadpool: Any
+    s_statusbar_message: Any
+
     # Type hints
     playlist_cache: ThreadSafePlaylistCache
-    playlist_loader: "PlaylistContextLoader | None"
+    playlist_loader: PlaylistContextLoader | None
     playlist_column_delegate: PlaylistColumnDelegate
 
     # Signals for playlist events
@@ -48,10 +63,14 @@ class PlaylistMembershipMixin:
         self.playlist_loader: PlaylistContextLoader | None = None
 
         # 3. Create custom delegate for playlists column
-        self.playlist_column_delegate = PlaylistColumnDelegate(parent=self.tr_results)
+        self.playlist_column_delegate = PlaylistColumnDelegate(
+            parent=self.tr_results
+        )
         self.playlist_column_delegate.set_cache(self.playlist_cache)
-        self.playlist_column_delegate.set_obj_column_index(1)  # hidden obj column
-        self.playlist_column_delegate.button_clicked.connect(self.on_playlist_column_button_clicked)
+        self.playlist_column_delegate.set_obj_column_index(self.OBJ_COLUMN)
+        self.playlist_column_delegate.button_clicked.connect(
+            self.on_playlist_column_button_clicked
+        )
 
         # 5. Attach delegate to the results table (column 9 = playlists)
         # Note: Column indices: 0=index, 1=obj, 2=artist, 3=title, 4=album,
@@ -59,33 +78,48 @@ class PlaylistMembershipMixin:
 
         # Diagnostic: check if column 9 exists
         if hasattr(self, "model_tr_results") and self.model_tr_results:
-            col_count = self.model_tr_results.columnCount()
-            if col_count <= 9:
-                logger_gui.error(f"❌ Column 9 does NOT exist! Model only has {col_count} columns")
+            col_count: int = int(self.model_tr_results.columnCount())
+            if col_count <= self.PLAYLISTS_COLUMN:
+                logger_gui.error(
+                    f"Playlists column {self.PLAYLISTS_COLUMN} is missing. "
+                    f"Model has {col_count} columns."
+                )
 
-        self.tr_results.setItemDelegateForColumn(9, self.playlist_column_delegate)
+        self.tr_results.setItemDelegateForColumn(
+            self.PLAYLISTS_COLUMN,
+            self.playlist_column_delegate,
+        )
 
         # Configure column width and appearance
-        self.tr_results.setColumnWidth(9, 60)
+        self.tr_results.setColumnWidth(self.PLAYLISTS_COLUMN, 60)
 
         # Make sure column is visible
-        if self.tr_results.isColumnHidden(9):
-            self.tr_results.setColumnHidden(9, False)
+        if self.tr_results.isColumnHidden(self.PLAYLISTS_COLUMN):
+            self.tr_results.setColumnHidden(self.PLAYLISTS_COLUMN, False)
 
-        self.tr_results.setColumnHidden(1, True)  # Hide obj column
+        self.tr_results.setColumnHidden(self.OBJ_COLUMN, True)
 
         # 6. Connect model signals to trigger preloading
         if hasattr(self, "model_tr_results") and self.model_tr_results:
-            self.model_tr_results.modelReset.connect(self.on_results_layout_changed)
-            self.model_tr_results.layoutChanged.connect(self.on_results_layout_changed)
+            self.model_tr_results.modelReset.connect(
+                self.on_results_layout_changed
+            )
+            self.model_tr_results.layoutChanged.connect(
+                self.on_results_layout_changed
+            )
 
             # Initialize states for any existing rows
             existing_rows = self.model_tr_results.rowCount()
             if existing_rows > 0:
                 for r in range(existing_rows):
-                    self.playlist_column_delegate.set_cell_state(r, PlaylistCellState.READY)
+                    self.playlist_column_delegate.set_cell_state(
+                        r,
+                        PlaylistCellState.READY,
+                    )
         else:
-            logger_gui.error("❌ model_tr_results not found - signal not connected!")
+            logger_gui.error(
+                "model_tr_results is unavailable; playlist state signals not connected."
+            )
 
         # 7. Launch initial playlist loading immediately
         self._load_playlists()
@@ -107,22 +141,53 @@ class PlaylistMembershipMixin:
 
         # Indiquer explicitement au délégué que le cache n'est pas prêt
         # afin d'afficher le spinner au lieu des compteurs.
-        if hasattr(self, "playlist_column_delegate") and self.playlist_column_delegate:
+        if (
+            hasattr(self, "playlist_column_delegate")
+            and self.playlist_column_delegate
+        ):
             self.playlist_column_delegate.set_cache_ready(False)
 
+        tidal_session = getattr(self.tidal, "session", None)
+        user = getattr(tidal_session, "user", None)
+        user_id = getattr(user, "id", None)
+
+        if tidal_session is None or user_id is None:
+            logger_gui.warning(
+                "Cannot load playlists: TIDAL session or user ID is unavailable."
+            )
+            self.s_statusbar_message.emit(
+                StatusbarMessage(
+                    message="Please login to TIDAL first.",
+                    timeout=4000,
+                )
+            )
+            return
+
         self.playlist_loader = PlaylistContextLoader(
-            session=self.tidal.session,
-            user_id=str(self.tidal.session.user.id),
+            session=tidal_session,
+            user_id=str(user_id),
             max_workers=5,
         )
 
         # Connect signals for this worker instance
-        self.playlist_loader.signals.started.connect(self.on_playlist_loader_started)
-        self.playlist_loader.signals.cache_ready.connect(self.on_playlist_cache_ready)
-        self.playlist_loader.signals.metadata_ready.connect(self.on_playlist_metadata_ready)
-        self.playlist_loader.signals.error.connect(self.on_playlist_loader_error)
-        self.playlist_loader.signals.progress.connect(self.on_playlist_loader_progress)
-        self.playlist_loader.signals.finished.connect(self.on_playlist_loader_finished)
+        self.playlist_loader.signals.started.connect(
+            self.on_playlist_loader_started
+        )
+        self.playlist_loader.signals.cache_ready.connect(
+            self.on_playlist_cache_ready
+        )
+        self.playlist_loader.signals.metadata_ready.connect(
+            self.on_playlist_metadata_ready
+        )
+        self.playlist_loader.signals.error.connect(
+            self.on_playlist_loader_error
+        )
+        self.playlist_loader.signals.progress.connect(
+            self.on_playlist_loader_progress
+        )
+        self.playlist_loader.signals.finished.connect(
+            self.on_playlist_loader_finished
+        )
 
         # Start loading playlists in background
         self.threadpool.start(self.playlist_loader)
@@ -133,12 +198,20 @@ class PlaylistMembershipMixin:
         try:
             rows = self.model_tr_results.rowCount()
             for r in range(rows):
-                self.playlist_column_delegate.set_cell_state(r, PlaylistCellState.READY)
+                self.playlist_column_delegate.set_cell_state(
+                    r,
+                    PlaylistCellState.READY,
+                )
         except Exception as e:
             logger_gui.warning(f"Failed to initialize cell states: {e}")
 
-        # Force repaint to show buttons (if cache is already ready)
-        if self.playlist_column_delegate._cache_ready:
+        # Force repaint to show buttons only after the cache is ready.
+        cache_ready = bool(
+            getattr(self.playlist_column_delegate, "cache_ready", False)
+            or getattr(self.playlist_column_delegate, "is_cache_ready", False)
+            or getattr(self.playlist_column_delegate, "_cache_ready", False)
+        )
+        if cache_ready:
             try:
                 self.tr_results.viewport().update()
                 self.tr_results.viewport().repaint()
@@ -149,7 +222,7 @@ class PlaylistMembershipMixin:
         """Called when playlist loader starts."""
         pass  # Silent
 
-    def on_playlist_cache_ready(self, cache: dict) -> None:
+    def on_playlist_cache_ready(self, cache: dict[str, set[str]]) -> None:
         """Called when playlist cache is ready.
 
         Args:
@@ -165,7 +238,10 @@ class PlaylistMembershipMixin:
         try:
             rows = self.model_tr_results.rowCount()
             for r in range(rows):
-                self.playlist_column_delegate.set_cell_state(r, PlaylistCellState.READY)
+                self.playlist_column_delegate.set_cell_state(
+                    r,
+                    PlaylistCellState.READY,
+                )
         except Exception as e:
             logger_gui.warning(f"Failed to initialize cell states: {e}")
 
@@ -176,7 +252,10 @@ class PlaylistMembershipMixin:
         self.tr_results.viewport().update()
         self.tr_results.viewport().repaint()
 
-    def on_playlist_metadata_ready(self, metadata: dict) -> None:
+    def on_playlist_metadata_ready(
+        self,
+        metadata: dict[str, dict[str, Any]],
+    ) -> None:
         """Receive playlist metadata and store it in the cache.
 
         Args:
@@ -187,7 +266,7 @@ class PlaylistMembershipMixin:
                 name = str(info.get("name", pid))
                 count = int(info.get("item_count", 0))
                 self.playlist_cache.set_playlist_metadata(pid, name, count)
-            logger_gui.debug(f"📝 Stored metadata for {len(metadata)} playlists")
+            logger_gui.debug(f"Stored metadata for {len(metadata)} playlists")
         except Exception as e:
             logger_gui.warning(f"Failed to store playlist metadata: {e}")
 
@@ -202,7 +281,7 @@ class PlaylistMembershipMixin:
         # Show user-friendly notification
         self.s_statusbar_message.emit(
             StatusbarMessage(
-                message=f"Erreur: {error_msg}",
+                message=f"Playlist loading error: {error_msg}",
                 timeout=5000,
             )
         )
@@ -220,7 +299,9 @@ class PlaylistMembershipMixin:
         """Handle playlist loader finished (success or error)."""
         pass  # Silent
 
-    def on_playlist_column_button_clicked(self, index: QtCore.QModelIndex) -> None:
+    def on_playlist_column_button_clicked(
+        self, index: QtCore.QModelIndex
+    ) -> None:
         """Handle click on playlist column button.
 
         Opens the playlist manager dialog for the clicked track.
@@ -235,14 +316,18 @@ class PlaylistMembershipMixin:
             source_index = index
 
         # Get the track object from the model
-        obj_item = self.model_tr_results.item(source_index.row(), 1)  # Column 1 = obj
+        obj_item = self.model_tr_results.item(
+            source_index.row(), self.OBJ_COLUMN
+        )
         if not obj_item:
             logger_gui.warning("Failed to get track object from model")
             return
 
         track = obj_item.data(QtCore.Qt.ItemDataRole.UserRole)
         if not isinstance(track, Track):
-            logger_gui.warning(f"Cell does not contain Track object: {type(track)}")
+            logger_gui.warning(
+                f"Cell does not contain Track object: {type(track)}"
+            )
             return
 
         # Create and show the dialog
@@ -251,7 +336,7 @@ class PlaylistMembershipMixin:
             cache=self.playlist_cache,
             session=self.tidal.session,
             threadpool=self.threadpool,
-            parent=self,
+            parent=self.tr_results.window(),
         )
 
         # Connect signals for tracking changes
@@ -261,7 +346,9 @@ class PlaylistMembershipMixin:
         # Show dialog modally
         dialog.exec()
 
-    def on_track_added_to_playlist(self, track_id: str, playlist_id: str) -> None:
+    def on_track_added_to_playlist(
+        self, track_id: str, playlist_id: str
+    ) -> None:
         """Handle track added to playlist.
 
         Args:
@@ -270,7 +357,9 @@ class PlaylistMembershipMixin:
         """
         pass  # Silent - update handled by dialog
 
-    def on_track_removed_from_playlist(self, track_id: str, playlist_id: str) -> None:
+    def on_track_removed_from_playlist(
+        self, track_id: str, playlist_id: str
+    ) -> None:
         """Handle track removed from playlist.
 
         Args:

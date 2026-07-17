@@ -9,13 +9,16 @@ Architecture:
 - PlaylistColumnDelegate: Custom delegate for rendering the "Playlists" column
 """
 
+from __future__ import annotations
+
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from enum import StrEnum
+from typing import Any, cast
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from requests.exceptions import RequestException
-from tidalapi import Session
+from tidalapi.session import Session
 
 from tidal_dl_ng.helper.playlist_api import (
     get_playlist_items,
@@ -71,7 +74,9 @@ class ThreadSafePlaylistCache:
                 self._data[track_id] = set()
             self._data[track_id].add(playlist_id)
 
-    def remove_track_from_playlist(self, track_id: str, playlist_id: str) -> None:
+    def remove_track_from_playlist(
+        self, track_id: str, playlist_id: str
+    ) -> None:
         """Remove a track from a playlist in the cache.
 
         Args:
@@ -123,8 +128,6 @@ class ThreadSafePlaylistCache:
         Args:
             cache: Dict[track_id, Set[playlist_id]]
         """
-        if not isinstance(cache, dict):
-            return
         with self._lock:
             for tid, playlists in cache.items():
                 tid_str = str(tid)
@@ -134,7 +137,9 @@ class ThreadSafePlaylistCache:
                 for pid in playlists:
                     self._data[tid_str].add(str(pid))
 
-    def set_playlist_metadata(self, playlist_id: str, name: str, item_count: int) -> None:
+    def set_playlist_metadata(
+        self, playlist_id: str, name: str, item_count: int
+    ) -> None:
         """Store metadata for a playlist (name and item count)."""
         with self._lock:
             self._playlist_metadata[str(playlist_id)] = {
@@ -145,16 +150,29 @@ class ThreadSafePlaylistCache:
     def get_playlist_metadata(self, playlist_id: str) -> dict[str, str | int]:
         """Retrieve stored metadata for a playlist (or defaults)."""
         with self._lock:
-            return self._playlist_metadata.get(str(playlist_id), {"name": str(playlist_id), "item_count": 0}).copy()
+            return self._playlist_metadata.get(
+                str(playlist_id),
+                {"name": str(playlist_id), "item_count": 0},
+            ).copy()
+
+    def has_track(self, track_id: str) -> bool:
+        """Return whether a track has at least one cached membership."""
+        track_id = str(track_id)
+        with self._lock:
+            return track_id in self._data
 
     def get_playlist_name(self, playlist_id: str) -> str:
         """Convenience accessor for playlist name."""
-        return str(self.get_playlist_metadata(playlist_id).get("name", playlist_id))
+        return str(
+            self.get_playlist_metadata(playlist_id).get("name", playlist_id)
+        )
 
     def get_playlist_count(self, playlist_id: str) -> int:
         """Convenience accessor for playlist item_count."""
         try:
-            return int(self.get_playlist_metadata(playlist_id).get("item_count", 0))
+            return int(
+                self.get_playlist_metadata(playlist_id).get("item_count", 0)
+            )
         except Exception:
             return 0
 
@@ -249,7 +267,65 @@ class PlaylistContextLoader(QtCore.QRunnable):
     MAX_WORKERS: int = 5
     REQUEST_TIMEOUT: int = 30
 
-    def __init__(self, session: Session, user_id: str, max_workers: int = MAX_WORKERS) -> None:
+    @staticmethod
+    def _normalize_playlist_payload(
+        item: dict[str, Any],
+    ) -> dict[str, str | int]:
+        """Normalize playlist payload to stable string/int fields."""
+        return {
+            "uuid": str(item.get("uuid", "")),
+            "title": str(item.get("title", "")),
+            "numberOfItems": int(item.get("numberOfItems", 0)),
+        }
+
+    @staticmethod
+    def _response_json_dict(response: Any) -> dict[str, Any]:
+        """Safely parse a requests-like JSON response into a dict."""
+        json_fn = getattr(response, "json", None)
+        if callable(json_fn):
+            payload = json_fn()
+            if isinstance(payload, dict):
+                return cast(dict[str, Any], payload)
+        return {}
+
+    def _fetch_user_playlists_via_request(
+        self,
+        req_any: Any,
+    ) -> list[dict[str, str | int]]:
+        """Fetch user playlists through low-level request hook pagination."""
+        playlists_data: list[dict[str, str | int]] = []
+
+        resp1 = req_any("GET", f"/users/{self.user_id}/playlists")
+        data1 = self._response_json_dict(resp1)
+        items1 = data1.get("items", [])
+        if isinstance(items1, list):
+            for item_any in items1:
+                if isinstance(item_any, dict):
+                    playlists_data.append(
+                        self._normalize_playlist_payload(
+                            cast(dict[str, Any], item_any)
+                        )
+                    )
+
+        total = int(data1.get("totalNumberOfItems", len(playlists_data)))
+        if len(playlists_data) < total:
+            resp2 = req_any("GET", f"/users/{self.user_id}/playlists?page=2")
+            data2 = self._response_json_dict(resp2)
+            items2 = data2.get("items", [])
+            if isinstance(items2, list):
+                for item_any in items2:
+                    if isinstance(item_any, dict):
+                        playlists_data.append(
+                            self._normalize_playlist_payload(
+                                cast(dict[str, Any], item_any)
+                            )
+                        )
+
+        return playlists_data
+
+    def __init__(
+        self, session: Session, user_id: str, max_workers: int = MAX_WORKERS
+    ) -> None:
         """Initialize the playlist context loader.
 
         Args:
@@ -280,7 +356,9 @@ class PlaylistContextLoader(QtCore.QRunnable):
             self.signals.started.emit()
 
             # Step 1: Fetch all user playlists
-            playlists: list[dict[str, str | int]] = self._fetch_user_playlists()
+            playlists: list[dict[str, str | int]] = (
+                self._fetch_user_playlists()
+            )
             if not playlists:
                 # Emit empty metadata so UI can hide dialog empty state properly
                 self.signals.metadata_ready.emit({})
@@ -290,25 +368,32 @@ class PlaylistContextLoader(QtCore.QRunnable):
 
             # Emit playlist metadata for UI (names & counts)
             metadata_payload: dict[str, dict[str, str | int]] = {
-                p["uuid"]: {"name": p["title"], "item_count": p["numberOfItems"]} for p in playlists
+                str(p["uuid"]): {
+                    "name": str(p["title"]),
+                    "item_count": int(p["numberOfItems"]),
+                }
+                for p in playlists
             }
 
             # Debug: log all playlist names (gated)
-            playlist_names = [p["title"] for p in playlists]
-            logger_gui.debug(f"📝 Loading {len(playlists)} playlists: {', '.join(sorted(playlist_names)[:10])}...")
+            playlist_names = [str(p["title"]) for p in playlists]
+            logger_gui.debug(
+                f"Loading {len(playlists)} playlists: {', '.join(sorted(playlist_names)[:10])}..."
+            )
 
             self.signals.metadata_ready.emit(metadata_payload)
 
             # Step 2: Fetch contents for all playlists (parallel)
-            cache: dict[str, set[str]] = self._fetch_all_playlist_contents(playlists)
+            cache: dict[str, set[str]] = self._fetch_all_playlist_contents(
+                playlists
+            )
 
             # Log cache statistics (keep info minimal or gate)
             total_unique_tracks = len(cache)
             total_memberships = sum(len(pls) for pls in cache.values())
-            logger_gui.debug(f"  → Sample cache track IDs: {list(cache.keys())[:10] if cache else []}")
-            # Keep the success info, but you asked to suppress logs; gate it as well
             logger_gui.debug(
-                f"✅ Cache built: {total_unique_tracks} unique tracks, {total_memberships} total playlist memberships"
+                "Cache built: "
+                f"{total_unique_tracks} unique tracks, {total_memberships} total playlist memberships"
             )
 
             # Step 3: Emit ready signal with cache data
@@ -320,7 +405,9 @@ class PlaylistContextLoader(QtCore.QRunnable):
             self.signals.error.emit(f"Network error loading playlists: {e!s}")
             self.signals.finished.emit()
         except Exception as e:
-            self.signals.error.emit(f"Unexpected error loading playlists: {e!s}")
+            self.signals.error.emit(
+                f"Unexpected error loading playlists: {e!s}"
+            )
             self.signals.finished.emit()
 
     def _fetch_user_playlists(self) -> list[dict[str, str | int]]:
@@ -334,40 +421,33 @@ class PlaylistContextLoader(QtCore.QRunnable):
             # If a low-level request hook is present, leverage it (tests attach a mock)
             req = getattr(self.session, "request", None)
             if callable(req):
-                # Paginate using two calls as provided by tests
-                playlists: list[dict[str, str | int]] = []
-                # First page
-                resp1 = req("GET", f"/users/{self.user_id}/playlists")
-                data1 = resp1.json() if hasattr(resp1, "json") else {}
-                playlists.extend(data1.get("items", []))
-                total = int(data1.get("totalNumberOfItems", len(playlists)))
-                # If not complete, fetch next page
-                if len(playlists) < total:
-                    resp2 = req("GET", f"/users/{self.user_id}/playlists?page=2")
-                    data2 = resp2.json() if hasattr(resp2, "json") else {}
-                    playlists.extend(data2.get("items", []))
-                return playlists
+                req_any = cast(Any, req)
+                return self._fetch_user_playlists_via_request(req_any)
 
             tidal_playlists = get_user_playlists(self.session)
 
             # Extract metadata from each playlist
-            playlists: list[dict[str, str | int]] = []
+            playlists_data_api: list[dict[str, str | int]] = []
             for pl in tidal_playlists:
                 metadata = get_playlist_metadata(pl)
-                playlists.append(
+                playlists_data_api.append(
                     {
-                        "uuid": metadata["id"],
-                        "title": metadata["name"],
-                        "numberOfItems": metadata["item_count"],
+                        "uuid": str(metadata["id"]),
+                        "title": str(metadata["name"]),
+                        "numberOfItems": int(metadata["item_count"]),
                     }
                 )
 
         except Exception as e:
-            raise RequestException(f"Failed to fetch user playlists: {e}") from e  # noqa: TRY003
+            raise RequestException(
+                f"Failed to fetch user playlists: {e}"
+            ) from e  # noqa: TRY003
         else:
-            return playlists
+            return playlists_data_api
 
-    def _fetch_all_playlist_contents(self, playlists: list[dict[str, str | int]]) -> dict[str, set[str]]:
+    def _fetch_all_playlist_contents(
+        self, playlists: list[dict[str, str | int]]
+    ) -> dict[str, set[str]]:
         """Fetch contents of all playlists in parallel.
 
         Uses ThreadPoolExecutor to parallelize API requests.
@@ -382,8 +462,12 @@ class PlaylistContextLoader(QtCore.QRunnable):
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all playlist fetch tasks
-            futures: dict = {
-                executor.submit(self._fetch_playlist_items, playlist["uuid"], playlist["title"]): playlist["uuid"]
+            futures: dict[Future[set[str]], str] = {
+                executor.submit(
+                    self._fetch_playlist_items,
+                    str(playlist["uuid"]),
+                    str(playlist["title"]),
+                ): str(playlist["uuid"])
                 for playlist in playlists
                 if not self._abort_requested.is_set()
             }
@@ -406,10 +490,14 @@ class PlaylistContextLoader(QtCore.QRunnable):
                         cache[track_id].add(playlist_uuid)
 
                 except RequestException as e:
-                    logger_gui.debug(f"Request error for playlist {playlist_uuid}: {e}")
+                    logger_gui.debug(
+                        f"Request error for playlist {playlist_uuid}: {e}"
+                    )
                     continue
                 except Exception as e:
-                    logger_gui.debug(f"Unexpected error for playlist {playlist_uuid}: {e}")
+                    logger_gui.debug(
+                        f"Unexpected error for playlist {playlist_uuid}: {e}"
+                    )
                     continue
                 else:
                     # Emit progress
@@ -417,7 +505,9 @@ class PlaylistContextLoader(QtCore.QRunnable):
 
         return cache
 
-    def _extract_track_ids_from_response(self, data: dict) -> set[str]:
+    def _extract_track_ids_from_response(
+        self, data: dict[str, Any]
+    ) -> set[str]:
         """Extract track IDs from API response data.
 
         Args:
@@ -434,7 +524,9 @@ class PlaylistContextLoader(QtCore.QRunnable):
                 track_ids.add(tid)
         return track_ids
 
-    def _fetch_via_request_hook(self, playlist_uuid: str, playlist_name: str) -> set[str]:
+    def _fetch_via_request_hook(
+        self, playlist_uuid: str, playlist_name: str
+    ) -> set[str]:
         """Fetch playlist items using low-level request hook (for testing).
 
         Args:
@@ -444,27 +536,33 @@ class PlaylistContextLoader(QtCore.QRunnable):
         Returns:
             Set of track ID strings
         """
-        req = self.session.request
+        req = cast(Any, self.session.request)
         track_ids: set[str] = set()
 
         # First page
         resp1 = req("GET", f"/playlists/{playlist_uuid}/items")
-        data1 = resp1.json() if hasattr(resp1, "json") else {}
+        data1 = self._response_json_dict(resp1)
         track_ids.update(self._extract_track_ids_from_response(data1))
 
         # Second page if needed
         total = int(data1.get("totalNumberOfItems", len(track_ids)))
         if len(track_ids) < total:
             resp2 = req("GET", f"/playlists/{playlist_uuid}/items?page=2")
-            data2 = resp2.json() if hasattr(resp2, "json") else {}
+            data2 = self._response_json_dict(resp2)
             track_ids.update(self._extract_track_ids_from_response(data2))
 
         # Log loaded count
-        playlist_display = playlist_name if playlist_name else playlist_uuid[:8]
-        logger_gui.debug(f"📋 Loaded {len(track_ids)} tracks from playlist '{playlist_display}'")
+        playlist_display = (
+            playlist_name if playlist_name else playlist_uuid[:8]
+        )
+        logger_gui.debug(
+            f"📋 Loaded {len(track_ids)} tracks from playlist '{playlist_display}'"
+        )
         return track_ids
 
-    def _fetch_via_tidalapi(self, playlist_uuid: str, playlist_name: str) -> set[str]:
+    def _fetch_via_tidalapi(
+        self, playlist_uuid: str, playlist_name: str
+    ) -> set[str]:
         """Fetch playlist items using tidalapi helpers.
 
         Args:
@@ -478,26 +576,35 @@ class PlaylistContextLoader(QtCore.QRunnable):
         playlist = self.session.playlist(playlist_uuid)
 
         # Use centralized API helper to get all items
-        items = get_playlist_items(playlist)
+        items = get_playlist_items(cast(Any, playlist))
 
         # Extract track IDs - normalize all IDs to strings
         track_ids: set[str] = set()
         for item in items:
-            if hasattr(item, "id") and item.id is not None:
-                tid = str(item.id)
+            item_id = getattr(item, "id", None)
+            if item_id is not None:
+                tid = str(item_id)
                 track_ids.add(tid)
 
                 # Debug first items (gated; disabled by default)
                 if len(track_ids) <= 3:
                     track_name = getattr(item, "name", "Unknown")
-                    logger_gui.debug(f"  [{playlist_name}...] Track '{track_name}' ID: {tid} (type: {type(item.id)})")
+                    logger_gui.debug(
+                        f"[{playlist_name}...] Track '{track_name}' ID: {tid} (type: {type(item_id)})"
+                    )
 
         # Log loaded count
-        playlist_display = playlist_name if playlist_name else playlist_uuid[:8]
-        logger_gui.debug(f"📋 Loaded {len(track_ids)} tracks from playlist '{playlist_display}'")
+        playlist_display = (
+            playlist_name if playlist_name else playlist_uuid[:8]
+        )
+        logger_gui.debug(
+            f"📋 Loaded {len(track_ids)} tracks from playlist '{playlist_display}'"
+        )
         return track_ids
 
-    def _fetch_playlist_items(self, playlist_uuid: str, playlist_name: str = "") -> set[str]:
+    def _fetch_playlist_items(
+        self, playlist_uuid: str, playlist_name: str = ""
+    ) -> set[str]:
         """Fetch all track IDs from a single playlist using tidalapi helpers.
 
         Args:
@@ -510,15 +617,21 @@ class PlaylistContextLoader(QtCore.QRunnable):
         try:
             req = getattr(self.session, "request", None)
             if callable(req):
-                return self._fetch_via_request_hook(playlist_uuid, playlist_name)
+                return self._fetch_via_request_hook(
+                    playlist_uuid, playlist_name
+                )
 
             return self._fetch_via_tidalapi(playlist_uuid, playlist_name)
 
         except RequestException:
             raise
         except Exception as e:
-            logger_gui.debug(f"Unexpected error fetching items for {playlist_uuid}: {e}")
-            raise RequestException(f"Failed to fetch items for playlist {playlist_uuid}: {e}") from e  # noqa: TRY003
+            logger_gui.debug(
+                f"Unexpected error fetching items for {playlist_uuid}: {e}"
+            )
+            raise RequestException(
+                f"Failed to fetch items for playlist {playlist_uuid}: {e}"
+            ) from e  # noqa: TRY003
 
     def request_abort(self) -> None:
         """Request graceful abortion of the loader.
@@ -565,26 +678,33 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
 
         # Create spinner widget for PENDING state
         if parent:
-            self._spinner = QtWaitingSpinner(parent, centerOnParent=False, disableParentWhenSpinning=False)
-            self._spinner.setNumberOfLines(12)
-            self._spinner.setLineLength(4)
-            self._spinner.setLineWidth(2)
-            self._spinner.setInnerRadius(4)
-            self._spinner.setColor(QtGui.QColor(100, 150, 255))
-            self._spinner.hide()  # Hidden by default
+            spinner_cls = cast(Any, QtWaitingSpinner)
+            self._spinner = spinner_cls(
+                parent,
+                centerOnParent=False,
+                disableParentWhenSpinning=False,
+            )
+            spinner_any = cast(Any, self._spinner)
+            spinner_any.setNumberOfLines(12)
+            spinner_any.setLineLength(4)
+            spinner_any.setLineWidth(2)
+            spinner_any.setInnerRadius(4)
+            spinner_any.setColor(QtGui.QColor(100, 150, 255))
+            spinner_any.hide()  # Hidden by default
 
     def set_cache(self, cache: ThreadSafePlaylistCache) -> None:
         """Attach cache reference for count rendering."""
         self._cache = cache
 
     def set_obj_column_index(self, col: int) -> None:
+        """Set source-model column containing media object in UserRole."""
         self._obj_column_index = col
 
     def paint(
         self,
         painter: QtGui.QPainter,
         option: QtWidgets.QStyleOptionViewItem,
-        index: QtCore.QModelIndex,
+        index: QtCore.QModelIndex | QtCore.QPersistentModelIndex,
     ) -> None:
         """Paint the cell contents based on current state.
 
@@ -595,7 +715,9 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
         """
         # Determine state
         row_key: str = str(index.row())
-        state: PlaylistCellState = self._cell_states.get(row_key, PlaylistCellState.PENDING)
+        state: PlaylistCellState = self._cell_states.get(
+            row_key, PlaylistCellState.PENDING
+        )
 
         # Auto-initialize to READY if cache is ready and state is unknown (scroll scenario)
         if state == PlaylistCellState.PENDING and self._cache_ready:
@@ -611,6 +733,7 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
         if state == PlaylistCellState.PENDING:
             # Show spinner for this cell
             if self._spinner:
+                spinner_any = cast(Any, self._spinner)
                 # Position spinner in cell
                 spinner_size = self._spinner.width()
                 center_x = content_rect.center().x() - spinner_size // 2
@@ -620,8 +743,8 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
                 self._spinner.show()
 
                 # Ensure spinner is running
-                if not self._spinner.isSpinning():
-                    self._spinner.start()
+                if not spinner_any.isSpinning():
+                    spinner_any.start()
         elif state == PlaylistCellState.READY:
             self._paint_button(painter, content_rect, option, index)
         elif state == PlaylistCellState.ERROR:
@@ -632,7 +755,7 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
         painter: QtGui.QPainter,
         rect: QtCore.QRect,
         option: QtWidgets.QStyleOptionViewItem,
-        index: QtCore.QModelIndex,
+        index: QtCore.QModelIndex | QtCore.QPersistentModelIndex,
     ) -> None:
         """Paint clickable button for READY state.
 
@@ -643,8 +766,14 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
             index: Model index to get track data from
         """
         # Draw button background
-        is_hovered: bool = bool(option.state & QtWidgets.QStyle.StateFlag.State_MouseOver)
-        bg_color: QtGui.QColor = QtGui.QColor(220, 240, 255) if is_hovered else QtGui.QColor(240, 240, 240)
+        is_hovered: bool = bool(
+            option.state & QtWidgets.QStyle.StateFlag.State_MouseOver
+        )
+        bg_color: QtGui.QColor = (
+            QtGui.QColor(220, 240, 255)
+            if is_hovered
+            else QtGui.QColor(240, 240, 240)
+        )
 
         painter.fillRect(rect, bg_color)
 
@@ -653,13 +782,17 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
         painter.drawRect(rect)
 
         # Draw text/icon
-        text_color: QtGui.QColor = QtGui.QColor(50, 100, 200) if is_hovered else QtGui.QColor(100, 120, 150)
+        text_color: QtGui.QColor = (
+            QtGui.QColor(50, 100, 200)
+            if is_hovered
+            else QtGui.QColor(100, 120, 150)
+        )
         painter.setPen(text_color)
 
         # Compute playlists count for this track
         count_text = "0"
         parent = self.parent()
-        track_id = None
+        track_id: str | None = None
 
         if isinstance(parent, QtWidgets.QTreeView) and self._cache is not None:
             model = parent.model()
@@ -668,51 +801,77 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
                 if index.isValid():
                     # Resolve to source index if proxy model is used
                     if isinstance(model, QtCore.QSortFilterProxyModel):
-                        source_index = model.mapToSource(index)
+                        source_index: QtCore.QModelIndex = model.mapToSource(
+                            index
+                        )
                         source_model = model.sourceModel()
                     else:
-                        source_index = index
+                        source_index = cast(Any, index)
                         source_model = model
 
                     # Only proceed if source index is valid
                     source_row = source_index.row()
                     if source_row >= 0:
                         # For QStandardItemModel, use item() directly
-                        if hasattr(source_model, "item"):
-                            obj_item = source_model.item(source_row, self._obj_column_index)
-                            obj_data = obj_item.data(QtCore.Qt.ItemDataRole.UserRole) if obj_item else None
+                        if isinstance(source_model, QtGui.QStandardItemModel):
+                            obj_item = source_model.item(
+                                source_row,
+                                self._obj_column_index,
+                            )
+                            obj_data = (
+                                obj_item.data(QtCore.Qt.ItemDataRole.UserRole)
+                                if obj_item
+                                else None
+                            )
                         else:
                             # Fallback for other model types
-                            obj_idx = source_model.index(source_row, self._obj_column_index)
-                            obj_data = obj_idx.data(QtCore.Qt.ItemDataRole.UserRole)
+                            obj_idx = source_model.index(
+                                source_row, self._obj_column_index
+                            )
+                            obj_data = obj_idx.data(
+                                QtCore.Qt.ItemDataRole.UserRole
+                            )
 
                         if obj_data is not None:
-                            tid = getattr(obj_data, "id", None)
-                            if tid is not None:
-                                track_id = str(tid)
-                                playlists_for_track = self._cache.get_playlists_for_track(track_id)
+                            tid_any = cast(Any, getattr(obj_data, "id", None))
+                            if tid_any is not None:
+                                track_id = str(tid_any)
+                                playlists_for_track = (
+                                    self._cache.get_playlists_for_track(
+                                        track_id
+                                    )
+                                )
                                 count = len(playlists_for_track)
                                 count_text = str(count)
 
-                                # Suppress noisy zero-playlist debug logs
-                                # (kept silent unless VERBOSE_DEBUG is enabled)
-                                track_name = getattr(obj_data, "name", "Unknown")
-                                sample_keys = list(self._cache._data.keys())[:5]
-                                is_in_cache = track_id in self._cache._data
-                                logger_gui.debug(f"⚠️ Track '{track_name}' (ID: {track_id}) shows 0 playlists")
-                                logger_gui.debug(f"  Is track ID '{track_id}' in cache? {is_in_cache}")
-                                logger_gui.debug(f"  Sample cache keys: {sample_keys}")
+                                if count == 0 and not self._cache.has_track(
+                                    track_id
+                                ):
+                                    track_name = str(
+                                        getattr(obj_data, "name", "Unknown")
+                                    )
+                                    logger_gui.debug(
+                                        f"Track '{track_name}' (ID: {track_id}) is not present in playlist cache yet"
+                                    )
 
             except Exception as e:
-                logger_gui.error(f"Error getting track playlist count: {e}", exc_info=True)
+                logger_gui.error(
+                    f"Error getting track playlist count: {e}", exc_info=True
+                )
 
         # Always draw text with count (fallback to "0" if track_id not found)
         # Pluralize "Playlist" → "Playlists" if count > 1
         count_int = int(count_text) if count_text.isdigit() else 0
-        text = f"({count_text}) Playlist" if count_int <= 1 else f"({count_text}) Playlists"
+        text = (
+            f"({count_text}) Playlist"
+            if count_int <= 1
+            else f"({count_text}) Playlists"
+        )
         painter.drawText(rect, QtCore.Qt.AlignmentFlag.AlignCenter, text)
 
-    def _paint_error(self, painter: QtGui.QPainter, rect: QtCore.QRect) -> None:
+    def _paint_error(
+        self, painter: QtGui.QPainter, rect: QtCore.QRect
+    ) -> None:
         """Paint error icon for ERROR state.
 
         Args:
@@ -745,33 +904,32 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
             is_ready: True if cache is ready, False if loading started
         """
         self._cache_ready = is_ready
+        spinner_any = cast(Any, self._spinner) if self._spinner else None
 
         if not is_ready:
             # Cache loading started - reset to PENDING
-            if self._spinner and not self._spinner.isSpinning():
-                self._spinner.start()
+            if spinner_any and not spinner_any.isSpinning():
+                spinner_any.start()
             return
 
         # Cache is ready - transition ALL rows to READY state
         parent = self.parent()
         if isinstance(parent, QtWidgets.QTreeView):
             model = parent.model()
-            if model is not None:
-                rows = model.rowCount()
-                for r in range(rows):
-                    self._cell_states[str(r)] = PlaylistCellState.READY
+            rows = model.rowCount()
+            for r in range(rows):
+                self._cell_states[str(r)] = PlaylistCellState.READY
 
         # Stop spinner
-        if self._spinner and self._spinner.isSpinning():
-            self._spinner.stop()
-            self._spinner.hide()
+        if spinner_any and spinner_any.isSpinning():
+            spinner_any.stop()
+            spinner_any.hide()
 
         # Force repaint
-        if isinstance(parent, QtWidgets.QWidget):
+        if isinstance(parent, QtWidgets.QAbstractItemView):
             try:
-                if hasattr(parent, "viewport"):
-                    parent.viewport().update()
-                    parent.viewport().repaint()
+                parent.viewport().update()
+                parent.viewport().repaint()
             except RuntimeError:
                 pass
 
@@ -780,7 +938,7 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
         event: QtCore.QEvent,
         model: QtCore.QAbstractItemModel,
         option: QtWidgets.QStyleOptionViewItem,
-        index: QtCore.QModelIndex,
+        index: QtCore.QModelIndex | QtCore.QPersistentModelIndex,
     ) -> bool:
         """Handle mouse events on the cell.
 
@@ -795,7 +953,9 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
         """
         if event.type() == QtCore.QEvent.Type.MouseButtonRelease:
             row_key: str = str(index.row())
-            state: PlaylistCellState = self._cell_states.get(row_key, PlaylistCellState.PENDING)
+            state: PlaylistCellState = self._cell_states.get(
+                row_key, PlaylistCellState.PENDING
+            )
 
             if state == PlaylistCellState.READY:
                 self.button_clicked.emit(index)

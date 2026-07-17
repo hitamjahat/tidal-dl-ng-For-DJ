@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+from datetime import datetime
 from collections.abc import Callable
 from json import JSONDecodeError
 from pathlib import Path
@@ -15,7 +16,11 @@ from tidal_dl_ng.constants import (
     ATMOS_REQUEST_QUALITY,
 )
 from tidal_dl_ng.helper.decorator import SingletonMeta
-from tidal_dl_ng.helper.path import path_config_base, path_file_settings, path_file_token
+from tidal_dl_ng.helper.path import (
+    path_config_base,
+    path_file_settings,
+    path_file_token,
+)
 from tidal_dl_ng.model.cfg import Settings as ModelSettings
 from tidal_dl_ng.model.cfg import Token as ModelToken
 
@@ -44,9 +49,12 @@ class BaseConfig:
     def set_option(self, key: str, value: Any) -> None:
         value_old: Any = getattr(self.data, key)
 
-        if type(value_old) == bool:  # noqa: E721
-            value = True if value.lower() in ("true", "1", "yes", "y") else False  # noqa: SIM210
-        elif type(value_old) == int and type(value) != int:  # noqa: E721
+        if isinstance(value_old, bool):
+            if isinstance(value, str):
+                value = value.lower() in ("true", "1", "yes", "y")
+            else:
+                value = bool(value)
+        elif isinstance(value_old, int) and not isinstance(value, int):
             value = int(value)
 
         setattr(self.data, key, value)
@@ -61,7 +69,12 @@ class BaseConfig:
 
             self.data = self.cls_model.from_json(settings_json)
             result = True
-        except (JSONDecodeError, TypeError, FileNotFoundError, ValueError) as e:
+        except (
+            JSONDecodeError,
+            TypeError,
+            FileNotFoundError,
+            ValueError,
+        ) as e:
             if isinstance(e, ValueError):
                 path_bak = path + ".bak"
 
@@ -123,12 +136,32 @@ class Tidal(BaseConfig, metaclass=SingletonMeta):
             self.settings = settings
             self.settings_apply()
 
+    @staticmethod
+    def _normalize_expiry_time(expiry_time: Any) -> datetime | None:
+        """Normalize persisted token expiry for tidalapi session loading.
+
+        Older config versions stored expiry_time as unix timestamp (float).
+        tidalapi expects datetime.datetime, so convert timestamps safely.
+        """
+        if expiry_time is None:
+            return None
+
+        if isinstance(expiry_time, datetime):
+            return expiry_time
+
+        if isinstance(expiry_time, (int, float)):
+            return datetime.fromtimestamp(expiry_time)
+
+        return None
+
     def settings_apply(self, settings: Settings = None) -> bool:
         if settings:
             self.settings = settings
 
         if not self.is_atmos_session:
-            self.session.audio_quality = tidalapi.Quality(self.settings.data.quality_audio)
+            self.session.audio_quality = tidalapi.Quality(
+                self.settings.data.quality_audio
+            )
         self.session.video_quality = tidalapi.VideoQuality.high
 
         return True
@@ -139,11 +172,14 @@ class Tidal(BaseConfig, metaclass=SingletonMeta):
 
         if self.token_from_storage:
             try:
+                expiry_time = self._normalize_expiry_time(
+                    self.data.expiry_time
+                )
                 result = self.session.load_oauth_session(
                     self.data.token_type,
                     self.data.access_token,
                     self.data.refresh_token,
-                    self.data.expiry_time,
+                    expiry_time,
                     is_pkce=do_pkce,
                 )
             except Exception:
@@ -222,11 +258,15 @@ class Tidal(BaseConfig, metaclass=SingletonMeta):
         self.session.config.client_secret = self.original_client_secret
 
         # Explicitly restore audio quality to user's configured setting
-        self.session.audio_quality = tidalapi.Quality(self.settings.data.quality_audio)
+        self.session.audio_quality = tidalapi.Quality(
+            self.settings.data.quality_audio
+        )
 
         # Re-login with original credentials
         if not self.login_token(do_pkce=self.is_pkce):
-            print("Warning: Restoring the original session context failed. Please restart the application.")
+            print(
+                "Warning: Restoring the original session context failed. Please restart the application."
+            )
             return False
 
         self.is_atmos_session = False  # Set the flag
@@ -242,7 +282,9 @@ class Tidal(BaseConfig, metaclass=SingletonMeta):
 
             result = True
         elif not is_token:
-            fn_print("You either do not have a token or your token is invalid.")
+            fn_print(
+                "You either do not have a token or your token is invalid."
+            )
             fn_print("No worries, we will handle this...")
             # Login method: Device linking
             self.session.login_oauth_simple(fn_print)
@@ -252,11 +294,15 @@ class Tidal(BaseConfig, metaclass=SingletonMeta):
             is_login = self.login_finalize()
 
             if is_login:
-                fn_print("The login was successful. I have stored your credentials (token).")
+                fn_print(
+                    "The login was successful. I have stored your credentials (token)."
+                )
 
                 result = True
             else:
-                fn_print("Something went wrong. Did you login using your browser correctly? May try again...")
+                fn_print(
+                    "Something went wrong. Did you login using your browser correctly? May try again..."
+                )
 
         return result
 
@@ -277,7 +323,11 @@ class Tidal(BaseConfig, metaclass=SingletonMeta):
             bool: True if the error is authentication-related, False otherwise.
         """
         error_msg = str(error)
-        return "401" in error_msg or "OAuth" in error_msg or "token" in error_msg.lower()
+        return (
+            "401" in error_msg
+            or "OAuth" in error_msg
+            or "token" in error_msg.lower()
+        )
 
 
 class HandlingApp(metaclass=SingletonMeta):

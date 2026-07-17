@@ -3,8 +3,10 @@
 Handles all initialization-related methods for the GUI components.
 """
 
+from __future__ import annotations
+
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ansi2html import Ansi2HTMLConverter
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -18,27 +20,63 @@ from tidal_dl_ng.logger import logger_gui
 from tidal_dl_ng.model.gui_data import ProgressBars
 from tidal_dl_ng.ui.spinner import QtWaitingSpinner
 
+if TYPE_CHECKING:
+    from tidal_dl_ng.config import Settings, Tidal
+
 
 class InitializationMixin:
     """Mixin containing initialization methods for MainWindow."""
 
+    # Attributes provided by MainWindow runtime composition.
+    settings: Settings
+    tidal: Tidal
+    queue_manager: Any
+    history_service: Any
+    playlist_manager: Any
+    statusbar: QtWidgets.QStatusBar
+    l_pm_cover: QtWidgets.QLabel
+    cb_search_type: QtWidgets.QComboBox
+    s_item_advance: Any
+    s_list_advance: Any
+    s_item_name: Any
+    s_list_name: Any
+    dl: Download
+    threadpool: QtCore.QThreadPool
+    proxy_tr_results: HumanProxyModel
+    hover_manager: Any
+    a_view_history: QtGui.QAction
+    a_toggle_duplicate_prevention: QtGui.QAction
+
+    setGeometry: Any
+    width: Any
+    menuBar: Any
+    thread_it: Any
+    handle_filter_activated: Any
+    menu_context_tree_results: Any
+    menu_context_queue_download: Any
+    on_track_hover_confirmed: Any
+    on_track_hover_left: Any
+    on_view_history: Any
+    on_toggle_duplicate_prevention: Any
+
     def _init_gui(self) -> None:
         """Initialize GUI-specific variables and state."""
+        settings_data = cast(Any, self.settings.data)
         self.setGeometry(
-            self.settings.data.window_x,
-            self.settings.data.window_y,
-            self.settings.data.window_w,
-            self.settings.data.window_h,
+            settings_data.window_x,
+            settings_data.window_y,
+            settings_data.window_w,
+            settings_data.window_h,
         )
         self.spinners: dict[QtWidgets.QWidget, QtWaitingSpinner] = {}
         self.converter_ansi_html: Ansi2HTMLConverter = Ansi2HTMLConverter()
 
-    def _init_threads(self):
+    def _init_threads(self) -> None:
         """Initialize thread pool and start background workers."""
         self.threadpool = QtCore.QThreadPool()
         self.thread_it(self.queue_manager.watcher_queue_download)
 
-    def _init_dl(self):
+    def _init_dl(self) -> None:
         """Initialize Download object and related progress bars."""
         data_pb: ProgressBars = ProgressBars(
             item=self.s_item_advance,
@@ -47,19 +85,21 @@ class InitializationMixin:
             list_name=self.s_list_name,
         )
         progress: Progress = Progress()
-        handling_app: HandlingApp = HandlingApp()
+        handling_app = cast(Any, HandlingApp)()
+        tidal_settings_data = cast(Any, self.tidal.settings.data)
+        settings_data = cast(Any, self.settings.data)
         self.dl = Download(
             tidal_obj=self.tidal,
-            skip_existing=self.tidal.settings.data.skip_existing,
-            path_base=self.settings.data.download_base_path,
-            fn_logger=logger_gui,
+            skip_existing=tidal_settings_data.skip_existing,
+            path_base=settings_data.download_base_path,
+            fn_logger=cast(Any, logger_gui),
             progress_gui=data_pb,
             progress=progress,
             event_abort=handling_app.event_abort,
             event_run=handling_app.event_run,
         )
 
-    def _init_progressbar(self):
+    def _init_progressbar(self) -> None:
         """Initialize and add progress bars to the status bar."""
         self.pb_list = QtWidgets.QProgressBar()
         self.pb_item = QtWidgets.QProgressBar()
@@ -69,21 +109,27 @@ class InitializationMixin:
             pb.setRange(0, 100)
             self.statusbar.addPermanentWidget(pb)
 
-    def _init_info(self):
+    def _init_info(self) -> None:
         """Set default album cover image in the GUI."""
-        path_image: str = resource_path("tidal_dl_ng/ui/default_album_image.png")
+        path_image: str = resource_path(
+            "tidal_dl_ng/ui/default_album_image.png"
+        )
         self.l_pm_cover.setPixmap(QtGui.QPixmap(path_image))
 
-    def _init_tree_results(self, tree: QtWidgets.QTreeView, model: QtGui.QStandardItemModel) -> None:
+    def _init_tree_results(
+        self,
+        tree: QtWidgets.QTreeView,
+        model: QtGui.QStandardItemModel,
+    ) -> None:
         """Initialize the results tree view and its model."""
-        header: FilterHeader = FilterHeader(tree)
-        self.proxy_tr_results: HumanProxyModel = HumanProxyModel(self)
+        header: FilterHeader = cast(Any, FilterHeader)(tree)
+        self.proxy_tr_results = HumanProxyModel(cast(QtCore.QObject, self))
 
         tree.setHeader(header)
         tree.setModel(model)
         self.proxy_tr_results.setSourceModel(model)
         tree.setModel(self.proxy_tr_results)
-        header.set_filter_boxes(model.columnCount())
+        cast(Any, header).set_filter_boxes(model.columnCount())
         header.filter_activated.connect(self.handle_filter_activated)
 
         tree.sortByColumn(0, QtCore.Qt.SortOrder.AscendingOrder)
@@ -98,9 +144,14 @@ class InitializationMixin:
         tree.setColumnWidth(6, narrow_width)
         tree.setColumnWidth(7, narrow_width)
         tree.setColumnWidth(8, skinny_width)
-        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(
+            0,
+            QtWidgets.QHeaderView.ResizeMode.ResizeToContents,
+        )
 
-        tree.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        tree.setContextMenuPolicy(
+            QtCore.Qt.ContextMenuPolicy.CustomContextMenu
+        )
         tree.customContextMenuRequested.connect(self.menu_context_tree_results)
 
         from tidal_dl_ng.helper.hover_manager import HoverManager
@@ -110,12 +161,16 @@ class InitializationMixin:
             proxy_model=self.proxy_tr_results,
             source_model=model,
             debounce_delay_ms=50,
-            parent=self,
+            parent=cast(QtCore.QObject, self),
         )
-        self.hover_manager.s_hover_confirmed.connect(self.on_track_hover_confirmed)
+        self.hover_manager.s_hover_confirmed.connect(
+            self.on_track_hover_confirmed
+        )
         self.hover_manager.s_hover_left.connect(self.on_track_hover_left)
 
-    def _init_tree_results_model(self, model: QtGui.QStandardItemModel) -> None:
+    def _init_tree_results_model(
+        self, model: QtGui.QStandardItemModel
+    ) -> None:
         """Initialize the model for the results tree view."""
         labels_column: list[str] = [
             "#",
@@ -138,11 +193,18 @@ class InitializationMixin:
         tree.setColumnHidden(1, True)
         tree.setColumnWidth(2, 200)
 
-        header = tree.header()
+        header = tree.horizontalHeader()
         if hasattr(header, "setSectionResizeMode"):
-            header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeToContents)
-        tree.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        tree.customContextMenuRequested.connect(self.menu_context_queue_download)
+            header.setSectionResizeMode(
+                0,
+                QtWidgets.QHeaderView.ResizeMode.ResizeToContents,
+            )
+        tree.setContextMenuPolicy(
+            QtCore.Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        tree.customContextMenuRequested.connect(
+            self.menu_context_queue_download
+        )
 
     def _init_tree_lists(self, tree: QtWidgets.QTreeWidget) -> None:
         """Initialize the user lists tree widget."""
@@ -151,8 +213,12 @@ class InitializationMixin:
         tree.setColumnWidth(2, 300)
         tree.expandAll()
 
-        tree.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        tree.customContextMenuRequested.connect(self.playlist_manager.menu_context_tree_lists)
+        tree.setContextMenuPolicy(
+            QtCore.Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        tree.customContextMenuRequested.connect(
+            self.playlist_manager.menu_context_tree_lists
+        )
 
     def _init_menu_actions(self) -> None:
         """Initialize custom menu actions."""
@@ -167,25 +233,39 @@ class InitializationMixin:
         if not tools_menu:
             tools_menu = menubar.addMenu("Tools")
 
-        self.a_view_history = QtGui.QAction("View Download History...", self)
+        self.a_view_history = QtGui.QAction(
+            "View Download History...",
+            cast(QtCore.QObject, self),
+        )
         self.a_view_history.triggered.connect(self.on_view_history)
         tools_menu.addAction(self.a_view_history)
 
         tools_menu.addSeparator()
 
-        self.a_toggle_duplicate_prevention = QtGui.QAction("Prevent Duplicate Downloads", self)
+        self.a_toggle_duplicate_prevention = QtGui.QAction(
+            "Prevent Duplicate Downloads",
+            cast(QtCore.QObject, self),
+        )
         self.a_toggle_duplicate_prevention.setCheckable(True)
-        is_preventing = self.history_service.get_settings().get("preventDuplicates", True)
+        is_preventing = self.history_service.get_settings().get(
+            "preventDuplicates", True
+        )
         self.a_toggle_duplicate_prevention.setChecked(is_preventing)
-        self.a_toggle_duplicate_prevention.triggered.connect(self.on_toggle_duplicate_prevention)
+        self.a_toggle_duplicate_prevention.triggered.connect(
+            self.on_toggle_duplicate_prevention
+        )
         tools_menu.addAction(self.a_toggle_duplicate_prevention)
 
-    def _populate_quality(self, ui_target: QtWidgets.QComboBox, options: Iterable[Any]) -> None:
+    def _populate_quality(
+        self, ui_target: QtWidgets.QComboBox, options: Iterable[Any]
+    ) -> None:
         """Populate a combo box with quality options."""
         for item in options:
             ui_target.addItem(item.name, item)
 
-    def _populate_search_types(self, ui_target: QtWidgets.QComboBox, options: Iterable[Any]) -> None:
+    def _populate_search_types(
+        self, ui_target: QtWidgets.QComboBox, options: Iterable[Any]
+    ) -> None:
         """Populate a combo box with search type options."""
         for item in options:
             if item:

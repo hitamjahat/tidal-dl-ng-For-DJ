@@ -16,7 +16,7 @@ from tidal_dl_ng.logger import logger_gui
 class TidalSessionMixin:
     """Mixin containing Tidal session management methods."""
 
-    def init_tidal(self, tidal: Tidal | None = None):
+    def init_tidal(self, tidal: Tidal | None = None) -> None:
         """Initialize Tidal session and handle login flow."""
         result: bool = False
 
@@ -28,11 +28,17 @@ class TidalSessionMixin:
             result = self.tidal.login_token()
 
             if not result:
-                hint: str = "After you have finished the TIDAL login via web browser click the 'OK' button."
+                hint: str = (
+                    "After you have finished the TIDAL login via web browser click the 'OK' button."
+                )
 
                 while not result:
                     link_login: LinkLogin = self.tidal.session.get_link_login()
-                    expires_in = int(link_login.expires_in) if hasattr(link_login, "expires_in") else 0
+                    expires_in = (
+                        int(link_login.expires_in)
+                        if hasattr(link_login, "expires_in")
+                        else 0
+                    )
                     d_login: DialogLogin = DialogLogin(
                         url_login=link_login.verification_uri_complete,
                         hint=hint,
@@ -42,14 +48,29 @@ class TidalSessionMixin:
 
                     if d_login.return_code == 1:
                         try:
-                            self.tidal.session.process_link_login(link_login, until_expiry=False)
-                            self.tidal.login_finalize()
+                            process_ok = self.tidal.session.process_link_login(
+                                link_login, until_expiry=False
+                            )
+                            finalize_ok = self.tidal.login_finalize()
 
-                            result = True
-                            logger_gui.info("Login successful. Have fun!")
-                        except (HTTPError, Exception):
+                            result = process_ok and finalize_ok
+                            if result:
+                                logger_gui.info("Login successful. Have fun!")
+                            else:
+                                hint = "Login authorization was not completed. Please try again."
+                                logger_gui.warning(
+                                    "Login flow finished but authentication was not finalized."
+                                )
+                        except HTTPError:
                             hint = "Something was wrong with your redirect url. Please try again!"
-                            logger_gui.warning("Login not successful. Try again...")
+                            logger_gui.exception(
+                                "Login failed due to HTTP error."
+                            )
+                        except Exception:
+                            hint = "Something was wrong with your redirect url. Please try again!"
+                            logger_gui.exception(
+                                "Login not successful. Try again..."
+                            )
                     else:
                         sys.exit(1)
 

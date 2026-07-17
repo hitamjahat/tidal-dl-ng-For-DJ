@@ -4,10 +4,13 @@ This module combines all GUI functionality through mixins to create
 the main application window.
 """
 
+from __future__ import annotations
+
 from collections.abc import Callable
+from typing import Any, cast
 
 from PySide6 import QtCore, QtGui, QtWidgets
-from tidalapi import Quality
+from tidalapi.media import Quality
 
 from tidal_dl_ng.cache import TrackExtrasCache
 from tidal_dl_ng.config import HandlingApp, Settings, Tidal
@@ -68,7 +71,7 @@ class MainWindow(
     history_service: HistoryService
     threadpool: QtCore.QThreadPool
     tray: QtWidgets.QSystemTrayIcon
-    spinners: dict
+    spinners: dict[QtWidgets.QWidget, Any]
     cover_url_current: str = ""
     shutdown: bool = False
     model_tr_results: QtGui.QStandardItemModel = QtGui.QStandardItemModel()
@@ -81,7 +84,7 @@ class MainWindow(
     cover_manager: CoverManager
     track_extras_cache: TrackExtrasCache
     _pending_extras_workers: dict[str, Worker]
-    _track_extras_callbacks: dict[str, Callable]
+    _track_extras_callbacks: dict[str, Callable[..., Any]]
 
     # Qt Signals
     s_spinner_start: QtCore.Signal = QtCore.Signal(QtWidgets.QWidget)
@@ -96,7 +99,9 @@ class MainWindow(
     s_list_advance: QtCore.Signal = QtCore.Signal(float)
     s_pb_reset: QtCore.Signal = QtCore.Signal()
     s_populate_tree_lists: QtCore.Signal = QtCore.Signal(dict)
-    s_populate_folder_children: QtCore.Signal = QtCore.Signal(object, list, list)
+    s_populate_folder_children: QtCore.Signal = QtCore.Signal(
+        object, list, list
+    )
     s_statusbar_message: QtCore.Signal = QtCore.Signal(object)
     s_tr_results_add_top_level_item: QtCore.Signal = QtCore.Signal(object)
     s_settings_save: QtCore.Signal = QtCore.Signal()
@@ -115,11 +120,11 @@ class MainWindow(
             tidal (Tidal | None): Optional Tidal session object.
         """
         super().__init__()
-        self.setupUi(self)
+        cast(Any, self).setupUi(self)
         self.setWindowTitle("TIDAL Downloader Next Generation!")
 
         # Initialize settings first
-        self.settings = Settings()
+        self.settings = cast(Any, Settings)()
 
         # Initialize managers that depend on settings
         self.queue_manager = GuiQueueManager(self)
@@ -128,28 +133,36 @@ class MainWindow(
         self.info_tab_widget = InfoTabWidget(self, self.tabWidget)
 
         # Logging redirect
-        XStream.stdout().messageWritten.connect(self._log_output)
+        cast(Any, XStream).stdout().messageWritten.connect(self._log_output)
 
-        self.history_service = HistoryService()
+        self.history_service = cast(Any, HistoryService)()
 
         # Core components
         self._init_threads()
         self._init_gui()
         self.track_extras_cache = TrackExtrasCache()
         self._pending_extras_workers: dict[str, Worker] = {}
-        self._track_extras_callbacks: dict[str, Callable] = {}
+        self._track_extras_callbacks: dict[str, Callable[..., Any]] = {}
 
         # Managers that have dependencies
-        self.cover_manager = CoverManager(self, self.threadpool, self.info_tab_widget)
+        self.cover_manager = CoverManager(
+            cast(Any, self),
+            self.threadpool,
+            self.info_tab_widget,
+        )
 
         # Initialize the rest of the UI
-        self.info_tab_widget.set_track_extras_provider(self.get_track_extras)
+        info_tab_widget_any = cast(Any, self.info_tab_widget)
+        set_extras_provider = info_tab_widget_any.set_track_extras_provider
+        self_any = cast(Any, self)
+        track_extras_provider = self_any.get_track_extras
+        set_extras_provider(track_extras_provider)
         self._init_tree_results_model(self.model_tr_results)
         self._init_tree_results(self.tr_results, self.model_tr_results)
-        self.playlist_manager.init_ui()
-        self.queue_manager.init_ui()
+        cast(Any, self.playlist_manager).init_ui()
+        cast(Any, self.queue_manager).init_ui()
         self._init_tree_lists(self.tr_lists_user)
-        self._init_tree_queue(self.tr_queue_download)
+        cast(Any, self)._init_tree_queue(self.tr_queue_download)
         self._init_info()
         self._init_progressbar()
         self._populate_quality(self.cb_quality_audio, Quality)
@@ -164,10 +177,14 @@ class MainWindow(
         self._init_signals()
 
         # Connect signal for invoking track extras callbacks
-        self.s_invoke_callback.connect(self._on_invoke_callback)
+        invoke_callback_handler = self_any._on_invoke_callback
+        cast(Any, self.s_invoke_callback).connect(invoke_callback_handler)
 
         # Connect playlist manager signals
-        self.s_populate_tree_lists.connect(self.on_populate_tree_lists)
+        populate_tree_lists_handler = self_any.on_populate_tree_lists
+        cast(Any, self.s_populate_tree_lists).connect(
+            populate_tree_lists_handler
+        )
 
         self.init_tidal(tidal)
 
@@ -186,15 +203,16 @@ class MainWindow(
         for line in traceback.format_stack():
             logger_gui.debug(line.strip())
         # Save the main window size and position
-        self.settings.data.window_x = self.x()
-        self.settings.data.window_y = self.y()
-        self.settings.data.window_w = self.width()
-        self.settings.data.window_h = self.height()
+        settings_data = cast(Any, self.settings.data)
+        settings_data.window_x = self.x()
+        settings_data.window_y = self.y()
+        settings_data.window_w = self.width()
+        settings_data.window_h = self.height()
         self.settings.save()
 
         self.shutdown = True
 
-        handling_app: HandlingApp = HandlingApp()
+        handling_app = cast(Any, HandlingApp)()
         handling_app.event_abort.set()
 
         event.accept()
@@ -205,22 +223,28 @@ class MainWindow(
         Args:
             settings (Settings): The settings object.
         """
-        quality_audio = getattr(getattr(settings, "data", None), "quality_audio", 1)
-        quality_video = getattr(getattr(settings, "data", None), "quality_video", 0)
-        elements = [
-            {"element": self.cb_quality_audio, "setting": quality_audio, "default_id": 1},
-            {"element": self.cb_quality_video, "setting": quality_video, "default_id": 0},
+        settings_data = getattr(settings, "data", None)
+        quality_audio = getattr(settings_data, "quality_audio", 1)
+        quality_video = getattr(settings_data, "quality_video", 0)
+        elements: list[tuple[QtWidgets.QComboBox, Any, int]] = [
+            (self.cb_quality_audio, quality_audio, 1),
+            (self.cb_quality_video, quality_video, 0),
         ]
 
-        for item in elements:
-            idx = item["element"].findData(item["setting"])
+        for element, setting_value, default_id in elements:
+            idx = element.findData(setting_value)
 
             if idx > -1:
-                item["element"].setCurrentIndex(idx)
+                element.setCurrentIndex(idx)
             else:
-                item["element"].setCurrentIndex(item["default_id"])
+                element.setCurrentIndex(default_id)
 
-    def thread_it(self, fn: Callable, *args, **kwargs) -> None:
+    def thread_it(
+        self,
+        fn: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
         """Run a function in a separate thread.
 
         Args:
@@ -228,5 +252,5 @@ class MainWindow(
             *args: Positional arguments for the function.
             **kwargs: Keyword arguments for the function.
         """
-        worker = Worker(fn, *args, **kwargs)
+        worker = cast(Any, Worker)(fn, *args, **kwargs)
         self.threadpool.start(worker)

@@ -10,12 +10,20 @@ Design:
 - Provides visual feedback (loading spinner, success/error notifications)
 """
 
+from __future__ import annotations
+
+from typing import cast
+
 from PySide6 import QtCore, QtGui, QtWidgets
 from requests.exceptions import RequestException
-from tidalapi import Session, Track
+from tidalapi.media import Track
+from tidalapi.session import Session
 
 from tidal_dl_ng.gui.playlist_membership import ThreadSafePlaylistCache
-from tidal_dl_ng.helper.playlist_api import add_track_to_playlist, remove_track_from_playlist
+from tidal_dl_ng.helper.playlist_api import (
+    add_track_to_playlist,
+    remove_track_from_playlist,
+)
 from tidal_dl_ng.logger import logger_gui
 from tidal_dl_ng.worker import Worker
 
@@ -46,8 +54,14 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
     """
 
     # Signals
-    playlist_added: QtCore.Signal = QtCore.Signal(str, str)  # track_id, playlist_id
+    playlist_added: QtCore.Signal = QtCore.Signal(
+        str, str
+    )  # track_id, playlist_id
     playlist_removed: QtCore.Signal = QtCore.Signal(str, str)
+    transaction_finished: QtCore.Signal = QtCore.Signal(
+        str, str, bool, bool, str
+    )
+    # playlist_id, track_id, is_checked, success, message
 
     def __init__(
         self,
@@ -77,11 +91,15 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
         self._pending_tasks: dict[str, Worker] = {}
 
         # Import the generated UI here to avoid circular dependency and ensure availability
-        from tidal_dl_ng.ui.dialog_playlist_manager import Ui_DialogPlaylistManager
+        from tidal_dl_ng.ui.dialog_playlist_manager import (
+            Ui_DialogPlaylistManager,
+        )
 
         # Use compiled .ui
         self.ui = Ui_DialogPlaylistManager()
-        self.ui.setupUi(self)
+        self.ui.setupUi(self)  # type: ignore[no-untyped-call]
+
+        self.transaction_finished.connect(self._on_transaction_finished)
 
         # Set dynamic title with track name
         track_title: str = getattr(self.track, "name", "Unknown Track")
@@ -112,11 +130,9 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
         # Sort playlists alphabetically by name/ID
         sorted_playlist_ids: list[str] = sorted(
             all_playlist_ids,
-            key=lambda pid: (
-                self.cache.get_playlist_metadata(pid).get("name", pid).lower()
-                if self.cache.get_playlist_metadata(pid)
-                else pid.lower()
-            ),
+            key=lambda pid: str(
+                self.cache.get_playlist_metadata(pid).get("name", pid)
+            ).lower(),
         )
 
         # Create checkbox for each playlist
@@ -124,34 +140,16 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
 
         for playlist_id in sorted_playlist_ids:
             # Get playlist info
-            metadata: dict | None = self.cache.get_playlist_metadata(playlist_id)
-
-            if metadata is None:
-                # Try to fetch metadata from Tidal session as a fallback
-                try:
-                    playlist_obj = self.session.playlist(playlist_id)
-                    if playlist_obj:
-                        fetched_name = getattr(playlist_obj, "name", None) or f"Playlist {playlist_id}"
-                        fetched_count = getattr(playlist_obj, "num_tracks", None)
-                        item_count_val = int(fetched_count) if isinstance(fetched_count, int) else 0
-                        # Store back into cache for future lookups
-                        self.cache.set_playlist_metadata(playlist_id, fetched_name, item_count_val)
-                        metadata = {"name": fetched_name, "item_count": item_count_val, "id": str(playlist_id)}
-                        logger_gui.debug(
-                            f"(i) Fetched missing metadata for playlist '{playlist_id}': name='{fetched_name}', count={item_count_val}"
-                        )
-                    else:
-                        logger_gui.warning(f"⚠️ No metadata found for playlist {playlist_id} (session returned None)")
-                except Exception as e:
-                    logger_gui.warning(f"⚠️ Failed to fetch metadata for playlist {playlist_id}: {e}")
-
-            playlist_name: str = (
-                metadata.get("name", f"Playlist {playlist_id}") if metadata else f"Playlist {playlist_id}"
+            metadata = self.cache.get_playlist_metadata(playlist_id)
+            playlist_name: str = str(
+                metadata.get("name", f"Playlist {playlist_id}")
             )
-            item_count: int = metadata.get("item_count", 0) if metadata else 0
+            item_count: int = int(metadata.get("item_count", 0))
 
             # Check if track is in this playlist
-            is_in_playlist: bool = self.cache.is_track_in_playlist(track_id, playlist_id)
+            is_in_playlist: bool = self.cache.is_track_in_playlist(
+                track_id, playlist_id
+            )
             self._original_states[playlist_id] = is_in_playlist
 
             # Row widget
@@ -164,9 +162,15 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
             checkbox: QtWidgets.QCheckBox = QtWidgets.QCheckBox()
             checkbox.setChecked(is_in_playlist)
             checkbox.setProperty("playlist_id", playlist_id)
-            checkbox.stateChanged.connect(
-                lambda state, cbox=checkbox, pid=playlist_id: (self._on_playlist_checkbox_changed(cbox, pid, state))
-            )
+
+            def _on_state_changed(
+                _state: int,
+                cbox: QtWidgets.QCheckBox = checkbox,
+                pid: str = playlist_id,
+            ) -> None:
+                self._on_playlist_checkbox_toggled(cbox, pid)
+
+            checkbox.stateChanged.connect(_on_state_changed)
             row_layout.addWidget(checkbox)
 
             # Playlist name
@@ -181,9 +185,26 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
             # Stretch
             row_layout.addStretch()
 
-            self.ui.verticalLayoutList.insertWidget(self.ui.verticalLayoutList.count() - 1, row_widget)  # before spacer
+            self.ui.verticalLayoutList.insertWidget(
+                self.ui.verticalLayoutList.count() - 1, row_widget
+            )  # before spacer
 
-    def _on_playlist_checkbox_changed(self, checkbox: QtWidgets.QCheckBox, playlist_id: str, state: int) -> None:
+    def _on_playlist_checkbox_toggled(
+        self,
+        checkbox: QtWidgets.QCheckBox,
+        playlist_id: str,
+    ) -> None:
+        """Bridge Qt signal to typed state-change handler."""
+        state = (
+            QtCore.Qt.CheckState.Checked.value
+            if checkbox.isChecked()
+            else QtCore.Qt.CheckState.Unchecked.value
+        )
+        self._on_playlist_checkbox_changed(checkbox, playlist_id, state)
+
+    def _on_playlist_checkbox_changed(
+        self, checkbox: QtWidgets.QCheckBox, playlist_id: str, state: int
+    ) -> None:
         """Handle checkbox state change for a playlist.
 
         Implements transactional logic:
@@ -210,29 +231,32 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
 
         if is_checked:
             # Add track to playlist
-            worker: Worker = Worker(
+            worker_ctor = cast(object, Worker)
+            worker: Worker = worker_ctor(  # type: ignore[operator]
                 self._api_add_track_to_playlist,
                 track_id,
                 playlist_id,
-                checkbox,
                 previous_state,
             )
         else:
             # Remove track from playlist
-            worker: Worker = Worker(
+            worker_ctor = cast(object, Worker)
+            worker = worker_ctor(  # type: ignore[operator]
                 self._api_remove_track_from_playlist,
                 track_id,
                 playlist_id,
-                checkbox,
                 previous_state,
             )
 
         # Store worker reference for potential cancellation
         self._pending_tasks[f"{playlist_id}"] = worker
-        self.threadpool.start(worker)
+        self.threadpool.start(cast(QtCore.QRunnable, worker))
 
     def _api_add_track_to_playlist(
-        self, track_id: str, playlist_id: str, checkbox: QtWidgets.QCheckBox, previous_state: bool
+        self,
+        track_id: str,
+        playlist_id: str,
+        previous_state: bool,
     ) -> None:
         """API call to add track to playlist (runs in worker thread).
 
@@ -248,30 +272,33 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
 
             # Success: update cache and UI
             self.cache.add_track_to_playlist(track_id, playlist_id)
-            self.playlist_added.emit(track_id, playlist_id)  # Notify listeners
-
-            # Re-enable checkbox
-            checkbox.setEnabled(True)
+            self.transaction_finished.emit(
+                playlist_id, track_id, True, True, ""
+            )
 
         except RequestException:
-            # Rollback: restore previous state
-            checkbox.blockSignals(True)
-            checkbox.setChecked(previous_state)
-            checkbox.blockSignals(False)
-            checkbox.setEnabled(True)
-
-            # Show error notification (via statusbar or toast)
-            self._show_error_notification("Impossible d'ajouter à la playlist")
+            self.transaction_finished.emit(
+                playlist_id,
+                track_id,
+                True,
+                False,
+                "Impossible d'ajouter à la playlist",
+            )
 
         except Exception:
-            checkbox.blockSignals(True)
-            checkbox.setChecked(previous_state)
-            checkbox.blockSignals(False)
-            checkbox.setEnabled(True)
-            self._show_error_notification("Erreur lors de la modification")
+            self.transaction_finished.emit(
+                playlist_id,
+                track_id,
+                True,
+                False,
+                "Erreur lors de la modification",
+            )
 
     def _api_remove_track_from_playlist(
-        self, track_id: str, playlist_id: str, checkbox: QtWidgets.QCheckBox, previous_state: bool
+        self,
+        track_id: str,
+        playlist_id: str,
+        previous_state: bool,
     ) -> None:
         """API call to remove track from playlist (runs in worker thread).
 
@@ -287,26 +314,65 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
 
             # Success: update cache and UI
             self.cache.remove_track_from_playlist(track_id, playlist_id)
-            self.playlist_removed.emit(track_id, playlist_id)
-
-            # Re-enable checkbox
-            checkbox.setEnabled(True)
+            self.transaction_finished.emit(
+                playlist_id, track_id, False, True, ""
+            )
 
         except RequestException:
-            # Rollback: restore previous state
-            checkbox.blockSignals(True)
-            checkbox.setChecked(previous_state)
-            checkbox.blockSignals(False)
-            checkbox.setEnabled(True)
-
-            self._show_error_notification("Impossible de retirer de la playlist")
+            self.transaction_finished.emit(
+                playlist_id,
+                track_id,
+                False,
+                False,
+                "Impossible de retirer de la playlist",
+            )
 
         except Exception:
+            self.transaction_finished.emit(
+                playlist_id,
+                track_id,
+                False,
+                False,
+                "Erreur lors de la modification",
+            )
+
+    def _find_playlist_checkbox(
+        self, playlist_id: str
+    ) -> QtWidgets.QCheckBox | None:
+        """Find the checkbox associated with a playlist id."""
+        for checkbox in self.findChildren(QtWidgets.QCheckBox):
+            if str(checkbox.property("playlist_id")) == playlist_id:
+                return checkbox
+        return None
+
+    def _on_transaction_finished(
+        self,
+        playlist_id: str,
+        track_id: str,
+        is_checked: bool,
+        success: bool,
+        message: str,
+    ) -> None:
+        """Handle API transaction completion on the GUI thread."""
+        checkbox = self._find_playlist_checkbox(playlist_id)
+        previous_state = self._original_states.get(playlist_id, False)
+
+        if checkbox is not None:
             checkbox.blockSignals(True)
-            checkbox.setChecked(previous_state)
+            checkbox.setChecked(is_checked if success else previous_state)
             checkbox.blockSignals(False)
             checkbox.setEnabled(True)
-            self._show_error_notification("Erreur lors de la modification")
+
+        if success:
+            self._original_states[playlist_id] = is_checked
+            if is_checked:
+                self.playlist_added.emit(track_id, playlist_id)
+            else:
+                self.playlist_removed.emit(track_id, playlist_id)
+        else:
+            self._show_error_notification(message)
+
+        self._pending_tasks.pop(playlist_id, None)
 
     def _show_error_notification(self, message: str) -> None:
         """Show a non-intrusive error notification.
@@ -329,19 +395,3 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
         # Cancel pending tasks (Worker doesn't have built-in abort, but we can clean up references)
         self._pending_tasks.clear()
         super().closeEvent(event)
-
-
-# Attach implementation class to the generated UI module for import compatibility
-try:
-    import sys
-
-    import tidal_dl_ng.ui.dialog_playlist_manager as _ui_mod
-
-    _ui_mod.PlaylistManagerDialog = PlaylistManagerDialog
-    # Ensure module is in sys.modules for proper imports
-    sys.modules["tidal_dl_ng.ui.dialog_playlist_manager"] = _ui_mod
-except Exception as e:
-    # If UI module isn't importable in some contexts, log and continue
-    from tidal_dl_ng.logger import logger_gui
-
-    logger_gui.debug(f"Could not attach PlaylistManagerDialog to UI module: {e}")

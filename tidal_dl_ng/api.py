@@ -1,37 +1,63 @@
+"""TIDAL API key management module.
+
+Provides functions to retrieve and validate TIDAL API client keys
+for different platforms. Keys are loaded from a local fallback set
+and optionally refreshed from a remote GitHub Gist.
+"""
+
 import json
+import logging
+import re
+from typing import TypedDict, cast
 
 import requests
+
+from tidal_dl_ng.constants import REQUESTS_TIMEOUT_SEC
+
+logger = logging.getLogger(__name__)
+
+
+class ApiKey(TypedDict):
+    platform: str
+    formats: str
+    clientId: str
+    clientSecret: str
+    valid: str
+    from_: str
+
+
+class ApiKeysData(TypedDict):
+    version: str
+    keys: list[dict[str, str]]
+
 
 # See also
 # https://github.com/yaronzz/Tidal-Media-Downloader/commit/1d5b8cd8f65fd1def45d6406778248249d6dfbdf
 # https://github.com/yaronzz/Tidal-Media-Downloader/pull/840
 # https://github.com/nathom/streamrip/tree/main/streamrip
-# https://github.com/arnesongit/plugin.audio.tidal2/blob/e9429d601d0c303d775d05a19a66415b57479d87/resources/lib/tidal2/tidalapi/__init__.py#L86
 
 # TODO: Implement this into `Download`: Session should randomize the usage.
+# Fallback API keys (JSON with comments stripped before parsing).
 __KEYS_JSON__ = """
 {
     "version": "1.0.1",
     "keys": [
-        // Invalid
         {
             "platform": "Fire TV",
             "formats": "Normal/High/HiFi(No Master)",
             "clientId": "OmDtrzFgyVVL6uW56OnFA2COiabqm",
             "clientSecret": "zxen1r3pO0hgtOC7j6twMo9UAqngGrmRiWpV7QC1zJ8=",
             "valid": "False",
-            "from": "Fokka-Engineering (https://github.com/Fokka-Engineering/libopenTIDAL/blob/655528e26e4f3ee2c426c06ea5b8440cf27abc4a/README.md#example)"
+            "from": "Fokka-Engineering"
         },
-        // Only max MQA.
         {
             "platform": "Fire TV",
             "formats": "Master-Only(Else Error)",
             "clientId": "7m7Ap0JC9j1cOM3n",
             "clientSecret": "vRAdA108tlvkJpTsGZS8rGZ7xTlbJ0qaZ2K9saEzsgY=",
             "valid": "True",
-            "from": "Dniel97 (https://github.com/Dniel97/RedSea/blob/4ba02b88cee33aeb735725cb854be6c66ff372d4/config/settings.example.py#L68)"
+            "from": "Dniel97"
         },
-        // Invalid
         {
             "platform": "Android TV",
             "formats": "Normal/High/HiFi(No Master)",
@@ -40,80 +66,172 @@ __KEYS_JSON__ = """
             "valid": "False",
             "from": ""
         },
-        // Invalid
         {
             "platform": "TV",
             "formats": "Normal/High/HiFi/Master",
             "clientId": "8SEZWa4J1NVC5U5Y",
             "clientSecret": "owUYDkxddz+9FpvGX24DlxECNtFEMBxipU0lBfrbq60=",
             "valid": "False",
-            "from": "morguldir (https://github.com/morguldir/python-tidal/commit/50f1afcd2079efb2b4cf694ef5a7d67fdf619d09)"
+            "from": "morguldir"
         },
-        // Invalid
         {
             "platform": "Android Auto",
             "formats": "Normal/High/HiFi/Master",
             "clientId": "zU4XHVVkc2tDPo4t",
             "clientSecret": "VJKhDFqJPqvsPVNBV6ukXTJmwlvbttP7wlMlrc72se4=",
             "valid": "True",
-            "from": "1nikolas (https://github.com/yaronzz/Tidal-Media-Downloader/pull/840)"
+            "from": "1nikolas"
         }
     ]
 }
 """
-__API_KEYS__ = json.loads(__KEYS_JSON__)
-__ERROR_KEY__ = (
-    {
-        "platform": "None",
-        "formats": "",
-        "clientId": "",
-        "clientSecret": "",
-        "valid": "False",
-    },
-)
-
-from tidal_dl_ng.constants import REQUESTS_TIMEOUT_SEC
 
 
-def getNum():
-    return len(__API_KEYS__["keys"])
+def _strip_json_comments(json_str: str) -> str:
+    """Remove // line comments from a JSON string.
+
+    Args:
+        json_str: Raw JSON string potentially containing // comments.
+
+    Returns:
+        Cleaned JSON string with comments removed.
+    """
+    return re.sub(r"^\s*//.*$", "", json_str, flags=re.MULTILINE)
 
 
-def getItem(index: int):
-    if index < 0 or index >= len(__API_KEYS__["keys"]):
+def _load_api_keys() -> ApiKeysData:
+    """Load API keys from the fallback JSON, stripping comments.
+
+    Returns:
+        Parsed API keys dictionary.
+    """
+    cleaned = _strip_json_comments(__KEYS_JSON__)
+    return cast(ApiKeysData, json.loads(cleaned))
+
+
+_api_keys: ApiKeysData = _load_api_keys()
+
+__ERROR_KEY__: dict[str, str] = {
+    "platform": "None",
+    "formats": "",
+    "clientId": "",
+    "clientSecret": "",
+    "valid": "False",
+}
+
+
+def get_num() -> int:
+    """Get the number of available API keys.
+
+    Returns:
+        Total count of API keys.
+    """
+    return len(_api_keys["keys"])
+
+
+def get_item(index: int) -> dict[str, str]:
+    """Get an API key item by index.
+
+    Args:
+        index: The index of the key to retrieve.
+
+    Returns:
+        The API key dictionary, or an error key if index is out of range.
+    """
+    if index < 0 or index >= len(_api_keys["keys"]):
         return __ERROR_KEY__
-    return __API_KEYS__["keys"][index]
+    return _api_keys["keys"][index]
 
 
-def isItemValid(index: int):
-    item = getItem(index)
+def is_item_valid(index: int) -> bool:
+    """Check if an API key at the given index is valid.
+
+    Args:
+        index: The index of the key to check.
+
+    Returns:
+        True if the key is marked as valid.
+    """
+    item = get_item(index)
     return item["valid"] == "True"
 
 
-def getItems():
-    return __API_KEYS__["keys"]
+def get_items() -> list[dict[str, str]]:
+    """Get all API key items.
+
+    Returns:
+        List of all API key dictionaries.
+    """
+    return _api_keys["keys"]
 
 
-def getLimitIndexs():
-    array = []
-    for i in range(len(__API_KEYS__["keys"])):
-        array.append(str(i))
-    return array
+def get_limit_indices() -> list[str]:
+    """Get string representations of all valid API key indices.
+
+    Returns:
+        List of index strings.
+    """
+    return [str(i) for i in range(len(_api_keys["keys"]))]
 
 
-def getVersion():
-    return __API_KEYS__["version"]
+def get_version() -> str:
+    """Get the API keys version string.
+
+    Returns:
+        Version string from the keys data.
+    """
+    return _api_keys["version"]
 
 
-# Load from gist
+def getNum() -> int:
+    """Backward-compatible alias for get_num."""
+    return get_num()
+
+
+def getItem(index: int) -> dict[str, str]:
+    """Backward-compatible alias for get_item."""
+    return get_item(index)
+
+
+def isItemValid(index: int) -> bool:
+    """Backward-compatible alias for is_item_valid."""
+    return is_item_valid(index)
+
+
+def getItems() -> list[dict[str, str]]:
+    """Backward-compatible alias for get_items."""
+    return get_items()
+
+
+def getLimitIndexs() -> list[str]:
+    """Backward-compatible alias for get_limit_indices."""
+    return get_limit_indices()
+
+
+def getVersion() -> str:
+    """Backward-compatible alias for get_version."""
+    return get_version()
+
+
+# Attempt to refresh API keys from remote GitHub Gist
 try:
-    respond = requests.get(
-        "https://api.github.com/gists/48d01f5a24b4b7b37f19443977c22cd6", timeout=REQUESTS_TIMEOUT_SEC
+    response = requests.get(
+        "https://api.github.com/gists/48d01f5a24b4b7b37f19443977c22cd6",
+        timeout=REQUESTS_TIMEOUT_SEC,
     )
-    if respond.status_code == 200:
-        content = respond.json()["files"]["tidal-api-key.json"]["content"]
-        __API_KEYS__ = json.loads(content)
+    if response.status_code == 200:
+        content = response.json()["files"]["tidal-api-key.json"]["content"]
+        payload = json.loads(content)
+        if (
+            isinstance(payload, dict)
+            and "version" in payload
+            and "keys" in payload
+        ):
+            _api_keys = cast(ApiKeysData, payload)
+            logger.info("API keys refreshed from remote Gist.")
+        else:
+            logger.warning(
+                "Invalid API keys payload from remote Gist. Using fallback keys."
+            )
 except Exception as e:
-    # TODO: Implement proper logging.
-    print(e)
-    pass
+    logger.warning("Could not refresh API keys from Gist: %s", e)
