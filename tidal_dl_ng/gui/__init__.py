@@ -4,16 +4,9 @@ This module provides the main window and all GUI-related functionality
 organized into manageable components.
 """
 
-try:
-    from PySide6 import QtCore, QtGui, QtWidgets
-except ImportError:  # pragma: no cover - GUI deps optional in some environments
-    QtCore = QtGui = QtWidgets = None
-
-from tidal_dl_ng.gui.main_window import MainWindow
+from tidal_dl_ng.gui import activate, main_window
 
 __all__ = [
-    "MainWindow",
-    "QtCore",
-    "QtGui",
-    "QtWidgets",
+    "activate",
+    "main_window",
 ]

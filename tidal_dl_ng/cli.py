@@ -1,11 +1,8 @@
-#!/usr/bin/env python
 """CLI entry point for tidal-dl-ng.
 
 Provides Typer-based commands for downloading TIDAL media via URLs,
 favorites collections, and interactive GUI launch.
 """
-
-# ruff: noqa: T201
 
 import signal
 import sys
@@ -13,7 +10,6 @@ import types
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
-from urllib.parse import urlparse
 
 import typer
 from rich.console import Console, Group
@@ -55,6 +51,8 @@ app_dl_fav = typer.Typer(
 
 app.add_typer(app_dl_fav, name="dl_fav")
 
+console = Console()
+
 
 def version_callback(value: bool) -> None:
     """Callback to print version and exit if version flag is set.
@@ -90,7 +88,7 @@ def callback_app(
     ctx.obj = {"tidal": None}
 
 
-def _handle_track_or_video(  # pylint: disable=too-many-arguments
+def _handle_track_or_video(
     dl: Download,
     ctx: typer.Context,
     media: object,
@@ -124,7 +122,7 @@ def _handle_track_or_video(  # pylint: disable=too-many-arguments
     )
 
 
-def _handle_album_playlist_mix_artist(  # pylint: disable=too-many-arguments
+def _handle_album_playlist_mix_artist(
     ctx: typer.Context,
     dl: Download,
     handling_app: HandlingApp,
@@ -175,13 +173,14 @@ def _handle_album_playlist_mix_artist(  # pylint: disable=too-many-arguments
     return True
 
 
-def _process_url(  # pylint: disable=too-many-return-statements
+def _process_url(
     dl: Download,
     ctx: typer.Context,
     handling_app: HandlingApp,
     url: str,
     idx: int,
     urls_pos_last: int,
+    fn_logger: LoggerWrapped,
 ) -> bool:
     """Process a single URL or ID for download.
 
@@ -192,6 +191,7 @@ def _process_url(  # pylint: disable=too-many-return-statements
         url: The URL or identifier to process.
         idx: The index of the url in the list.
         urls_pos_last: The last index in the URLs list.
+        fn_logger: Logger for output.
 
     Returns:
         bool: False if aborted, True otherwise.
@@ -202,32 +202,32 @@ def _process_url(  # pylint: disable=too-many-return-statements
         return False
 
     if "http" not in url:
-        print(f"It seems like you have supplied an invalid URL: {url}")
+        fn_logger(f"It seems like you have supplied an invalid URL: {url}")
         return True
 
     url_clean: str = url_ending_clean(url)
 
     media_type = get_tidal_media_type(url_clean)
     if not isinstance(media_type, MediaType):
-        print(f"Could not determine media type for: {url_clean}")
+        fn_logger(f"Could not determine media type for: {url_clean}")
         return True
 
     url_clean_id = get_tidal_media_id(url_clean)
     if not isinstance(url_clean_id, str):
-        print(f"Could not determine media id for: {url_clean}")
+        fn_logger(f"Could not determine media id for: {url_clean}")
         return True
 
     file_template = get_format_template(media_type, settings)
     if not isinstance(file_template, str):
-        print(f"Could not determine file template for: {url_clean}")
+        fn_logger(f"Could not determine file template for: {url_clean}")
         return True
 
     try:
         media = instantiate_media(
             ctx.obj[CTX_TIDAL].session, media_type, url_clean_id
         )
-    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-        print(
+    except Exception:  # noqa: BLE001
+        fn_logger(
             f"Media not found (ID: {url_clean_id}). "
             "Maybe it is not available anymore."
         )
@@ -258,7 +258,7 @@ def _process_url(  # pylint: disable=too-many-return-statements
 def _download(
     ctx: typer.Context,
     urls: list[str],
-    try_login: bool = True,  # noqa: FBT001, FBT002
+    try_login: bool = True,
 ) -> bool:
     """Invoke download and track progress for a list of URLs.
 
@@ -328,7 +328,7 @@ def _download(
             for idx, item in enumerate(urls):
                 if (
                     _process_url(
-                        dl, ctx, handling_app, item, idx, urls_pos_last
+                        dl, ctx, handling_app, item, idx, urls_pos_last, fn_logger
                     )
                     is False
                 ):
@@ -369,20 +369,20 @@ def settings_management(
     else:
         settings = Settings()
         d_settings: dict[str, object] = dict(
-            settings.data.to_dict()  # type: ignore[attr-defined]
+            settings.data.to_dict()
         )
 
         if names:
             if names[0] not in d_settings:
-                print(f'Option "{names[0]}" is not valid!')
+                console.print(f'Option "{names[0]}" is not valid!')
             elif len(names) == 1:
-                print(f'{names[0]}: "{d_settings[names[0]]}"')
+                console.print(f'{names[0]}: "{d_settings[names[0]]}"')
             elif len(names) > 1:
                 settings.set_option(names[0], names[1])
                 settings.save()
         else:
             help_settings: dict[str, str] = dict(
-                HelpSettings().to_dict()  # type: ignore[attr-defined]
+                HelpSettings().to_dict()
             )
             table = Table(title=f"Config: {path_file_settings()}")
             table.add_column("Key", style="cyan", no_wrap=True)
@@ -392,7 +392,6 @@ def settings_management(
             for key, value in sorted(d_settings.items()):
                 table.add_row(str(key), str(value), str(help_settings[key]))
 
-            console = Console()
             console.print(table)
 
 
@@ -465,7 +464,7 @@ def download(
         if file_urls:
             urls = file_urls.read_text(encoding="utf-8").splitlines()
         else:
-            print(
+            console.print(
                 "Provide either URLs or a file containing URLs (one per line)."
             )
             raise typer.Abort()
@@ -566,7 +565,7 @@ def gui(ctx: typer.Context) -> None:
     Args:
         ctx: Typer context object.
     """
-    from tidal_dl_ng.gui import gui_activate  # noqa: PLC0415
+    from tidal_dl_ng.gui import gui_activate
 
     ctx.invoke(login, ctx)
     gui_activate(ctx.obj[CTX_TIDAL])
@@ -592,8 +591,8 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, handle_sigint_term)
     signal.signal(signal.SIGTERM, handle_sigint_term)
 
-    # Check if the first argument is a URL. Hacky solution — Typer does
-    # not support positional arguments without options/commands.
+    # Check if the first argument is a URL. Hacky solution — Typer does not
+    # support positional arguments without options/commands.
     if len(sys.argv) > 1:
         first_arg = sys.argv[1]
         parsed_url = urlparse(first_arg)

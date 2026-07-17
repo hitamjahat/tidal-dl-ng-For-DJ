@@ -1,6 +1,0 @@
-﻿c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\tidal_dl_ng\model\downloader.py
-  c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\tidal_dl_ng\model\downloader.py:197:5 - error: Type of "extras" is partially unknown
-  ┬á┬áType of "extras" is "dict[Unknown, Unknown]" (reportUnknownVariableType)
-  c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\tidal_dl_ng\model\downloader.py:255:5 - error: Type of "urls" is partially unknown
-  ┬á┬áType of "urls" is "list[Unknown]" (reportUnknownVariableType)
-2 errors, 0 warnings, 0 informations

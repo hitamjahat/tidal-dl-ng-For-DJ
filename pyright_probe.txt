@@ -1,6 +1,0 @@
-﻿c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\tidal_dl_ng\_probe.py
-  c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\tidal_dl_ng\_probe.py:6:5 - error: Type of "a" is partially unknown
-  ┬á┬áType of "a" is "list[Unknown]" (reportUnknownVariableType)
-  c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\tidal_dl_ng\_probe.py:7:5 - error: Type of "b" is partially unknown
-  ┬á┬áType of "b" is "dict[Unknown, Unknown]" (reportUnknownVariableType)
-2 errors, 0 warnings, 0 informations

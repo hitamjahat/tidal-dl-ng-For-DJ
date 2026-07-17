@@ -8,10 +8,11 @@
 #    nuitka-project: --linux-icon=tidal_dl_ng/ui/icon512.png
 # nuitka-project-if: {OS} in ("Windows"):
 #    nuitka-project: --windows-icon-from-ico=tidal_dl_ng/ui/icon.ico
-#    nuitka-project: --file-description="TIDAL media downloader next generation."
+#    nuitka-project: --file-description="TIDAL dl-ng"
 
 # Debugging options, controlled via environment variable at compile time.
-# nuitka-project-if: {OS} == "Windows" and os.getenv("DEBUG_COMPILATION", "no") == "yes":
+# nuitka-project-if: {OS} == "Windows"
+# nuitka-project-if: os.getenv("DEBUG_COMPILATION", "no") == "yes"
 #    nuitka-project: --windows-console-mode=hide
 # nuitka-project-else:
 #    nuitka-project: --windows-console-mode=disable
@@ -36,8 +37,7 @@
 # nuitka-project: --noinclude-dlls=libQt6Sensors*
 # nuitka-project: --noinclude-dlls=libQt6Test*
 # nuitka-project: --noinclude-dlls=libQt6WebEngine*
-# nuitka-project: --include-data-files={MAIN_DIRECTORY}/ui/icon*=tidal_dl_ng/ui/
-# nuitka-project: --include-data-files={MAIN_DIRECTORY}/ui/default_album_image.png=tidal_dl_ng/ui/default_album_image.png
+# nuitka-project: --include-data-dir={MAIN_DIRECTORY}/ui=tidal_dl_ng/ui
 # nuitka-project: --include-data-files=./pyproject.toml=pyproject.toml
 # nuitka-project: --force-stderr-spec="{TEMP}/tidal-dl-ng.err.log"
 # nuitka-project: --force-stdout-spec="{TEMP}/tidal-dl-ng.out.log"
@@ -49,8 +49,11 @@ The legacy :mod:`tidal_dl_ng.gui` module now delegates to the modular
 implementation located under :mod:`tidal_dl_ng.gui.*`.
 """
 
-from tidal_dl_ng.gui.activate import gui_activate
-from tidal_dl_ng.gui.main_window import MainWindow
+import tidal_dl_ng.gui.activate as _gui_activate
+import tidal_dl_ng.gui.main_window as _gui_main_window
+
+MainWindow = _gui_main_window.MainWindow
+gui_activate = _gui_activate.gui_activate
 
 __all__ = ["MainWindow", "gui_activate"]
 

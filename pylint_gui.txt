@@ -1,0 +1,10 @@
+﻿python.exe : usage: pylint [options]
+At line:1 char:114
++ ... lyContinue; & ".\.venv\Scripts\python.exe" -m pylint --clear-cache ti ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (usage: pylint [options]:String) [ 
+   ], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+pylint: error: argument --clear-cache-post-run: (None, "Invalid yn value 
+'tidal_dl_ng/gui.py', should be in ('y', 'true', 'yes', 'n', 'false', 'no')")
