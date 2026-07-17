@@ -6,10 +6,14 @@ Handles tree view population and results display.
 import contextlib
 import math
 from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, Any, cast
 
 from PySide6 import QtCore, QtGui, QtWidgets
-from tidalapi import Album, Artist, Mix, Playlist, Track, UserPlaylist, Video
-from tidalapi.playlist import Folder
+from tidalapi.album import Album
+from tidalapi.artist import Artist
+from tidalapi.media import Track, Video
+from tidalapi.mix import Mix
+from tidalapi.playlist import Folder, Playlist, UserPlaylist
 
 from tidal_dl_ng.constants import FAVORITES, TidalLists
 from tidal_dl_ng.helper.gui import (
@@ -21,13 +25,37 @@ from tidal_dl_ng.helper.gui import (
 from tidal_dl_ng.helper.tidal import favorite_function_factory, items_results_all, user_media_lists
 from tidal_dl_ng.model.gui_data import ResultItem
 
+if TYPE_CHECKING:
+    from tidal_dl_ng.config import Tidal
+    from tidal_dl_ng.gui.covers import CoverManager
+    from tidal_dl_ng.gui.search import GuiSearchManager
+    from tidal_dl_ng.history import HistoryService
+    from tidal_dl_ng.ui.info_tab_widget import InfoTabWidget
+
 
 class TreesResultsMixin:
     """Mixin containing tree view and results management methods."""
 
+    # Attributes provided by MainWindow at runtime.
+    tr_results: QtWidgets.QTreeView
+    model_tr_results: QtGui.QStandardItemModel
+    proxy_tr_results: HumanProxyModel
+    history_service: "HistoryService"
+    thread_it: Any
+    s_spinner_start: Any
+    s_spinner_stop: Any
+    tidal: "Tidal"
+    tr_lists_user: QtWidgets.QTreeWidget
+    search_manager: "GuiSearchManager"
+    s_pb_reload_status: Any
+    s_populate_tree_lists: Any
+    s_tr_results_add_top_level_item: Any
+    info_tab_widget: "InfoTabWidget"
+    cover_manager: "CoverManager"
+
     def handle_filter_activated(self) -> None:
         """Handle activation of filter headers in the results tree."""
-        header = self.tr_results.header()
+        header = cast(Any, self.tr_results.header())
         filters: list[tuple[int, str]] = []
         for i in range(header.count()):
             text: str = header.filter_text(i)
@@ -45,7 +73,9 @@ class TreesResultsMixin:
         count_digits: int = int(math.log10(len(results) if results else 1)) + 1
 
         for item in results:
-            child: tuple = self.populate_tree_result_child(item=item, index_count_digits=count_digits)
+            child: Sequence[QtGui.QStandardItem] = self.populate_tree_result_child(
+                item=item, index_count_digits=count_digits
+            )
 
             if parent:
                 parent.appendRow(child)
@@ -58,7 +88,7 @@ class TreesResultsMixin:
 
         if item.duration_sec > -1:
             m, s = divmod(item.duration_sec, 60)
-            duration: str = f"{m:02d}:{s:02d}"
+            duration = f"{m:02d}:{s:02d}"
 
         index: str = str(item.position + 1).zfill(index_count_digits)
 
@@ -104,7 +134,7 @@ class TreesResultsMixin:
             child_playlists,
         )
 
-    def on_tr_results_add_top_level_item(self, item_child: Sequence[QtGui.QStandardItem]):
+    def on_tr_results_add_top_level_item(self, item_child: Sequence[QtGui.QStandardItem]) -> None:
         """Add a top-level item to the results tree model."""
         self.model_tr_results.appendRow(item_child)
 
@@ -130,22 +160,25 @@ class TreesResultsMixin:
 
     def list_items_show_result(
         self,
-        media_list: Album | Playlist | Mix | Artist | None = None,
+        media_list: Album | Playlist | Folder | Mix | Artist | Track | Video | str | None = None,
         point: QtCore.QPoint | None = None,
         parent: QtGui.QStandardItem | None = None,
-        favorite_function: Callable | None = None,
+        favorite_function: Callable[[], list[Track | Video | Album]] | None = None,
     ) -> None:
         """Populate the results tree with the items of a media list."""
         if point:
-            item = self.tr_lists_user.itemAt(point)
-            media_list = get_user_list_media_item(item)
+            tree_item = self.tr_lists_user.itemAt(point)
+            if tree_item:
+                media_list = get_user_list_media_item(tree_item)
 
-        if favorite_function or isinstance(media_list, str):
+        media_items: list[Track | Video | Album] = []
+        if favorite_function is not None or isinstance(media_list, str):
             if isinstance(media_list, str):
                 favorite_function = favorite_function_factory(self.tidal, media_list)
-            media_items: list[Track | Video | Album] = favorite_function()
+            if favorite_function is not None:
+                media_items = favorite_function()
         else:
-            media_items: list[Track | Video | Album] = items_results_all(self.tidal.session, media_list)
+            media_items = items_results_all(self.tidal.session, media_list)
 
         result: list[ResultItem] = self.search_manager.search_result_to_model(media_items)
         self.populate_tree_results(result, parent=parent)
@@ -155,19 +188,19 @@ class TreesResultsMixin:
         self.s_spinner_start.emit(self.tr_lists_user)
         self.s_pb_reload_status.emit(False)
 
-        user_all: dict[str, list] = user_media_lists(self.tidal.session)
+        user_all: dict[str, list[Any]] = user_media_lists(self.tidal.session)
         self.s_populate_tree_lists.emit(user_all)
 
-    def on_populate_tree_lists(self, user_lists: dict[str, list]) -> None:
+    def on_populate_tree_lists(self, user_lists: dict[str, list[Any]]) -> None:
         """Populate the user lists tree with playlists, mixes, and favorites."""
         twi_playlists: QtWidgets.QTreeWidgetItem = self.tr_lists_user.findItems(
-            TidalLists.Playlists, QtCore.Qt.MatchExactly, 0
+            TidalLists.Playlists, QtCore.Qt.MatchFlag.MatchExactly, 0
         )[0]
         twi_mixes: QtWidgets.QTreeWidgetItem = self.tr_lists_user.findItems(
-            TidalLists.Mixes, QtCore.Qt.MatchExactly, 0
+            TidalLists.Mixes, QtCore.Qt.MatchFlag.MatchExactly, 0
         )[0]
         twi_favorites: QtWidgets.QTreeWidgetItem = self.tr_lists_user.findItems(
-            TidalLists.Favorites, QtCore.Qt.MatchExactly, 0
+            TidalLists.Favorites, QtCore.Qt.MatchFlag.MatchExactly, 0
         )[0]
 
         for twi in [twi_playlists, twi_mixes]:
@@ -187,9 +220,9 @@ class TreesResultsMixin:
                 dummy_child.setDisabled(True)
             elif isinstance(item, UserPlaylist | Playlist):
                 twi_child = QtWidgets.QTreeWidgetItem(twi_playlists)
-                name: str = item.name if getattr(item, "name", None) is not None else ""
+                name = str(item.name) if getattr(item, "name", None) is not None else ""
                 description: str = f" {item.description}" if item.description else ""
-                info: str = f"({item.num_tracks + item.num_videos} Tracks){description}"
+                info = f"({item.num_tracks + item.num_videos} Tracks){description}"
                 twi_child.setText(0, name)
                 set_user_list_media(twi_child, item)
                 twi_child.setText(2, info)
@@ -197,8 +230,8 @@ class TreesResultsMixin:
         for item in user_lists.get("mixes", []):
             if isinstance(item, Mix):
                 twi_child = QtWidgets.QTreeWidgetItem(twi_mixes)
-                name: str = item.title
-                info: str = item.sub_title
+                name = item.title
+                info = item.sub_title
                 twi_child.setText(0, name)
                 set_user_list_media(twi_child, item)
                 twi_child.setText(2, info)
@@ -208,8 +241,8 @@ class TreesResultsMixin:
 
         for key, favorite in FAVORITES.items():
             twi_child = QtWidgets.QTreeWidgetItem(twi_favorites)
-            name: str = favorite["name"]
-            info: str = ""
+            name = favorite["name"]
+            info = ""
 
             twi_child.setText(0, name)
             set_user_list_media(twi_child, key)

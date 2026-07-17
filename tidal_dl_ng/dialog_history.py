@@ -1,5 +1,4 @@
-"""
-dialog_history.py
+"""dialog_history.py.
 
 Dialog for viewing and managing download history.
 """
@@ -7,13 +6,16 @@ Dialog for viewing and managing download history.
 import os
 import subprocess
 import sys
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from PySide6 import QtCore, QtWidgets
 
 from tidal_dl_ng.history import HistoryService
 from tidal_dl_ng.logger import logger_gui
+from tidal_dl_ng.ui.dialog_history import Ui_DialogHistory
 
 
 class DialogHistory(QtWidgets.QDialog):
@@ -26,7 +28,13 @@ class DialogHistory(QtWidgets.QDialog):
     - View statistics
     """
 
-    def __init__(self, history_service: HistoryService, parent=None):
+    ui: Ui_DialogHistory
+
+    def __init__(
+        self,
+        history_service: HistoryService,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
         """Initialize the history dialog.
 
         Args:
@@ -34,9 +42,6 @@ class DialogHistory(QtWidgets.QDialog):
             parent: Parent widget.
         """
         super().__init__(parent)
-
-        # Import the generated UI
-        from tidal_dl_ng.ui.dialog_history import Ui_DialogHistory
 
         self.ui = Ui_DialogHistory()
         self.ui.setupUi(self)
@@ -48,7 +53,7 @@ class DialogHistory(QtWidgets.QDialog):
 
         self.exec()
 
-    def _init_ui(self):
+    def _init_ui(self) -> None:
         """Initialize UI elements."""
         # Set file path
         file_path = self.history_service.get_history_file_path()
@@ -63,17 +68,24 @@ class DialogHistory(QtWidgets.QDialog):
         # Set window size
         self.resize(900, 600)
 
-    def _connect_signals(self):
+    def _connect_signals(self) -> None:
         """Connect UI signals to handlers."""
+        # pylint: disable-next=no-member
         self.ui.pb_refresh.clicked.connect(self._load_history)
+        # pylint: disable-next=no-member
         self.ui.pb_export.clicked.connect(self._on_export)
+        # pylint: disable-next=no-member
         self.ui.pb_import.clicked.connect(self._on_import)
+        # pylint: disable-next=no-member
         self.ui.pb_clear_history.clicked.connect(self._on_clear_history)
+        # pylint: disable-next=no-member
         self.ui.pb_remove_selected.clicked.connect(self._on_remove_selected)
+        # pylint: disable-next=no-member
         self.ui.pb_close.clicked.connect(self.close)
+        # pylint: disable-next=no-member
         self.ui.pb_open_folder.clicked.connect(self._on_open_folder)
 
-    def _load_history(self):
+    def _load_history(self) -> None:
         """Load and display the download history."""
         # Clear existing items
         self.ui.tw_history.clear()
@@ -98,16 +110,21 @@ class DialogHistory(QtWidgets.QDialog):
             self.ui.tw_history.addTopLevelItem(source_item)
 
             # Add tracks as children
-            for track_data in sorted(tracks, key=lambda x: x.get("download_date", ""), reverse=True):
+            for track_data in sorted(
+                tracks, key=lambda x: x.get("download_date", ""), reverse=True
+            ):
                 track_item = self._create_track_item(track_data)
                 source_item.addChild(track_item)
 
         # Expand all top-level items
         self.ui.tw_history.expandAll()
 
-        logger_gui.info(f"Loaded {stats['total_tracks']} tracks from history")
+        total = stats.get("total_tracks", 0)
+        logger_gui.info("Loaded %s tracks from history", total)
 
-    def _create_source_item(self, tracks: list) -> QtWidgets.QTreeWidgetItem:
+    def _create_source_item(
+        self, tracks: Sequence[Mapping[str, Any]]
+    ) -> QtWidgets.QTreeWidgetItem:
         """Create a tree widget item for a source.
 
         Args:
@@ -120,9 +137,9 @@ class DialogHistory(QtWidgets.QDialog):
             return QtWidgets.QTreeWidgetItem()
 
         first_track = tracks[0]
-        source_type = first_track.get("source_type", "unknown")
-        source_name = first_track.get("source_name", "Unknown")
-        source_id = first_track.get("source_id", "")
+        source_type: str = str(first_track.get("source_type", "unknown"))
+        source_name: str = str(first_track.get("source_name", "Unknown"))
+        source_id: str = str(first_track.get("source_id", ""))
 
         # Format source name
         if source_type == "manual" or not source_name:
@@ -151,7 +168,9 @@ class DialogHistory(QtWidgets.QDialog):
 
         return item
 
-    def _create_track_item(self, track_data: dict) -> QtWidgets.QTreeWidgetItem:
+    def _create_track_item(
+        self, track_data: Mapping[str, Any]
+    ) -> QtWidgets.QTreeWidgetItem:
         """Create a tree widget item for a track.
 
         Args:
@@ -160,17 +179,17 @@ class DialogHistory(QtWidgets.QDialog):
         Returns:
             QTreeWidgetItem for the track.
         """
-        track_id = track_data.get("track_id", "")
-        download_date = track_data.get("download_date", "")
+        track_id: str = str(track_data.get("track_id", ""))
+        download_date: str = str(track_data.get("download_date", ""))
 
         # Format date
         try:
             if download_date:
-                dt = datetime.fromisoformat(download_date.replace("Z", "+00:00"))
+                dt = datetime.fromisoformat(download_date)
                 formatted_date = dt.strftime("%Y-%m-%d %H:%M:%S")
             else:
                 formatted_date = "Unknown"
-        except:
+        except ValueError:
             formatted_date = download_date
 
         item = QtWidgets.QTreeWidgetItem()
@@ -184,40 +203,53 @@ class DialogHistory(QtWidgets.QDialog):
 
         return item
 
-    def _update_statistics(self, stats: dict):
+    def _update_statistics(self, stats: Mapping[str, Any]) -> None:
         """Update statistics labels.
 
         Args:
             stats: Dictionary with statistics.
         """
-        total = stats.get("total_tracks", 0)
-        by_type = stats.get("by_source_type", {})
+        total: int = int(stats.get("total_tracks", 0))
+        by_type: dict[str, int] = stats.get("by_source_type", {})
 
         self.ui.l_total_tracks.setText(f"Total Tracks: {total}")
         self.ui.l_by_albums.setText(f"Albums: {by_type.get('album', 0)}")
-        self.ui.l_by_playlists.setText(f"Playlists: {by_type.get('playlist', 0)}")
+        self.ui.l_by_playlists.setText(
+            f"Playlists: {by_type.get('playlist', 0)}"
+        )
         self.ui.l_by_mixes.setText(f"Mixes: {by_type.get('mix', 0)}")
         self.ui.l_by_manual.setText(f"Manual: {by_type.get('manual', 0)}")
 
-    def _on_export(self):
+    def _on_export(self) -> None:
         """Handle export button click."""
         file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Export Download History", "download_history_export.json", "JSON Files (*.json)"
+            self,
+            "Export Download History",
+            "download_history_export.json",
+            "JSON Files (*.json)",
         )
 
         if file_path:
             success, message = self.history_service.export_history(file_path)
 
             if success:
-                QtWidgets.QMessageBox.information(self, "Export Successful", message)
-                logger_gui.info(f"Exported history to: {file_path}")
+                QtWidgets.QMessageBox.information(
+                    self, "Export Successful", message
+                )
+                logger_gui.info("Exported history to: %s", file_path)
             else:
-                QtWidgets.QMessageBox.critical(self, "Export Failed", f"Failed to export history:\n{message}")
-                logger_gui.error(f"Export failed: {message}")
+                QtWidgets.QMessageBox.critical(
+                    self,
+                    "Export Failed",
+                    f"Failed to export history:\n{message}",
+                )
+                logger_gui.error("Export failed: %s", message)
 
-    def _on_import(self):
+    def _on_import(self) -> None:
         """Handle import button click."""
-        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Import Download History", "", "JSON Files (*.json)")
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Import Download History", "", "JSON Files (*.json)"
+        )
 
         if not file_path:
             return
@@ -241,59 +273,77 @@ class DialogHistory(QtWidgets.QDialog):
         merge = reply == QtWidgets.QMessageBox.StandardButton.Yes
 
         # Perform import
-        success, message = self.history_service.import_history(file_path, merge=merge)
+        success, message = self.history_service.import_history(
+            file_path, merge=merge
+        )
 
         if success:
-            QtWidgets.QMessageBox.information(self, "Import Successful", message)
-            logger_gui.info(f"Imported history from: {file_path}")
+            QtWidgets.QMessageBox.information(
+                self, "Import Successful", message
+            )
+            logger_gui.info("Imported history from: %s", file_path)
             self._load_history()  # Refresh display
         else:
-            QtWidgets.QMessageBox.critical(self, "Import Failed", f"Failed to import history:\n{message}")
-            logger_gui.error(f"Import failed: {message}")
+            QtWidgets.QMessageBox.critical(
+                self, "Import Failed", f"Failed to import history:\n{message}"
+            )
+            logger_gui.error("Import failed: %s", message)
 
-    def _on_clear_history(self):
+    def _on_clear_history(self) -> None:
         """Handle clear history button click."""
         reply = QtWidgets.QMessageBox.warning(
             self,
             "Clear Download History",
-            "Are you sure you want to clear ALL download history?\n\n" "This action cannot be undone!",
-            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            "Are you sure you want to clear ALL download history?\n\n"
+            "This action cannot be undone!",
+            QtWidgets.QMessageBox.StandardButton.Yes
+            | QtWidgets.QMessageBox.StandardButton.No,
         )
 
         if reply == QtWidgets.QMessageBox.StandardButton.Yes:
             self.history_service.clear_history()
-            QtWidgets.QMessageBox.information(self, "History Cleared", "Download history has been cleared.")
+            QtWidgets.QMessageBox.information(
+                self, "History Cleared", "Download history has been cleared."
+            )
             logger_gui.info("Download history cleared")
             self._load_history()  # Refresh display
 
-    def _on_remove_selected(self):
+    def _on_remove_selected(self) -> None:
         """Handle remove selected button click."""
-        selected_items = self.ui.tw_history.selectedItems()
-
-        if not selected_items:
-            QtWidgets.QMessageBox.warning(self, "No Selection", "Please select one or more tracks to remove.")
+        if not (selected_items := self.ui.tw_history.selectedItems()):
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No Selection",
+                "Please select one or more tracks to remove.",
+            )
             return
 
         # Collect track IDs from selected items (only child items, not parents)
-        track_ids = []
-        for item in selected_items:
-            # Check if it's a track (child item) by checking if it has a parent
-            if item.parent() is not None:
-                track_id = item.data(0, QtCore.Qt.ItemDataRole.UserRole)
-                if track_id:
-                    track_ids.append(track_id)
+        track_ids: list[str] = [
+            track_id
+            for item in selected_items
+            if self.ui.tw_history.indexOfTopLevelItem(item) == -1
+            and (
+                track_id := str(item.data(0, QtCore.Qt.ItemDataRole.UserRole))
+            )
+            and track_id != "None"
+        ]
 
         if not track_ids:
             QtWidgets.QMessageBox.warning(
-                self, "No Tracks Selected", "Please select individual tracks (not source groups) to remove."
+                self,
+                "No Tracks Selected",
+                "Please select individual tracks to remove.",
             )
             return
 
         reply = QtWidgets.QMessageBox.question(
             self,
             "Remove Tracks",
-            f"Are you sure you want to remove {len(track_ids)} track(s) from history?",
-            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            f"Are you sure you want to remove {len(track_ids)} "
+            "track(s) from history?",
+            QtWidgets.QMessageBox.StandardButton.Yes
+            | QtWidgets.QMessageBox.StandardButton.No,
         )
 
         if reply == QtWidgets.QMessageBox.StandardButton.Yes:
@@ -302,11 +352,15 @@ class DialogHistory(QtWidgets.QDialog):
                 if self.history_service.remove_track_from_history(track_id):
                     removed_count += 1
 
-            QtWidgets.QMessageBox.information(self, "Tracks Removed", f"Removed {removed_count} track(s) from history.")
-            logger_gui.info(f"Removed {removed_count} tracks from history")
+            QtWidgets.QMessageBox.information(
+                self,
+                "Tracks Removed",
+                f"Removed {removed_count} track(s) from history.",
+            )
+            logger_gui.info("Removed %s tracks from history", removed_count)
             self._load_history()  # Refresh display
 
-    def _on_open_folder(self):
+    def _on_open_folder(self) -> None:
         """Open the folder containing the history file."""
         file_path = Path(self.history_service.get_history_file_path())
         folder_path = file_path.parent
@@ -316,12 +370,18 @@ class DialogHistory(QtWidgets.QDialog):
                 os.startfile(folder_path)  # noqa: S606
             elif sys.platform == "darwin":
                 # Security: folder_path is from config, not user input
-                subprocess.run(["open", str(folder_path)], check=False)  # noqa: S603, S607
+                subprocess.run(  # noqa: S603
+                    ["open", str(folder_path)], check=False
+                )
             else:
                 # Security: folder_path is from config, not user input
-                subprocess.run(["xdg-open", str(folder_path)], check=False)  # noqa: S603, S607
+                subprocess.run(  # noqa: S603
+                    ["xdg-open", str(folder_path)], check=False
+                )
 
-            logger_gui.info(f"Opened folder: {folder_path}")
-        except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "Cannot Open Folder", f"Failed to open folder:\n{e!s}")
-            logger_gui.error(f"Failed to open folder: {e}")
+            logger_gui.info("Opened folder: %s", folder_path)
+        except OSError as e:
+            QtWidgets.QMessageBox.warning(
+                self, "Cannot Open Folder", f"Failed to open folder:\n{e!s}"
+            )
+            logger_gui.error("Failed to open folder: %s", e)

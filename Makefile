@@ -14,12 +14,12 @@ install: ## Install the poetry environment and install the pre-commit hooks
 
 .PHONY: check
 check: ## Run code quality tools.
-	@echo "🚀 Checking Poetry lock file consistency with 'pyproject.toml': Running poetry lock --check"
+	@echo "🚀 Checking Poetry lock file consistency with 'pyproject.toml'"
 	@poetry check --lock
-	@echo "🚀 Linting code: Running pre-commit"
+	@echo "🚀 Formatting, Linting, and Type Checking: Running pre-commit (Ruff + Mypy)"
 	@poetry run pre-commit run -a
-#	@echo "🚀 Static type checking: Running mypy"
-#	@poetry run mypy
+	@echo "🚀 Running strict performance checks: Running Pylint"
+	@poetry run pylint tidal_dl_ng
 	@echo "🚀 Checking for obsolete dependencies: Running deptry"
 	@poetry run deptry .
 

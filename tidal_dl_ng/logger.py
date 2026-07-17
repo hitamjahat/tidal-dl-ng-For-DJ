@@ -1,96 +1,198 @@
+"""Logging configuration and setup for the application."""
+
 import logging
 import sys
+from typing import TYPE_CHECKING, ClassVar, TextIO, cast
 
 import coloredlogs
 from PySide6 import QtCore
 
+from tidal_dl_ng.runtime_trace import setup_runtime_file_logging
 
-class XStream(QtCore.QObject):
-    _stdout = None
-    _stderr = None
-    messageWritten = QtCore.Signal(str)
+if TYPE_CHECKING:
+    from io import TextIOWrapper
 
-    def flush(self):
-        pass
+#: Module-level format string for log messages.
+LOG_FMT: str = "> %(message)s"
 
-    def fileno(self):
-        return -1
 
-    def write(self, msg):
-        if not self.signalsBlocked():
-            self.messageWritten.emit(msg)
+class LoggerState:
+    """Stores the global verbosity state for the logger."""
+
+    verbose_debug: bool = False
 
     @staticmethod
-    def stdout():
-        if not XStream._stdout:
-            XStream._stdout = XStream()
-            sys.stdout = XStream._stdout
-        return XStream._stdout
+    def enable(*, enabled: bool = True) -> None:
+        """Enable/disable showing DEBUG and WARNING records globally.
+
+        Args:
+            enabled: When True, DEBUG and WARNING messages are shown.
+                     INFO/ERROR/CRITICAL are unaffected and always shown.
+        """
+        LoggerState.verbose_debug = bool(enabled)
 
     @staticmethod
-    def stderr():
-        if not XStream._stderr:
-            XStream._stderr = XStream()
-            sys.stderr = XStream._stderr
-        return XStream._stderr
+    def get_verbose() -> bool:
+        """Return the current verbose debug state.
 
-
-class QtHandler(logging.Handler):
-    def __init__(self):
-        logging.Handler.__init__(self)
-
-    def emit(self, record):
-        record = self.format(record)
-
-        if record:
-            # originally: XStream.stdout().write("{}\n".format(record))
-            XStream.stdout().write("%s\n" % record)
-
-
-# --- Verbosity control -------------------------------------------------------
-# If False: DEBUG and WARNING messages are suppressed (INFO/ERROR/CRITICAL shown).
-# If True: DEBUG and WARNING messages are shown.
-_VERBOSE_DEBUG = False
+        Returns:
+            True if verbose debug mode is active.
+        """
+        return LoggerState.verbose_debug
 
 
 class DebugWarningFilter(logging.Filter):
+    """Dynamically suppresses DEBUG and WARNING log records."""
+
     def filter(self, record: logging.LogRecord) -> bool:
-        # Always allow INFO (and above except WARNING handled below)
-        # Suppress DEBUG and WARNING when _VERBOSE_DEBUG is False
-        if not _VERBOSE_DEBUG and record.levelno in (logging.DEBUG, logging.WARNING):
-            return False
-        return True
+        """Determine if the specified record is to be logged.
+
+        Args:
+            record: The log record to evaluate.
+
+        Returns:
+            True if the record should be logged, False otherwise.
+        """
+        return LoggerState.verbose_debug or record.levelno not in (
+            logging.DEBUG,
+            logging.WARNING,
+        )
+
+    def is_enabled(self) -> bool:
+        """Return whether verbose debug mode is enabled.
+
+        Returns:
+            True if verbose debug mode is active.
+        """
+        return LoggerState.verbose_debug
 
 
-def enable_debug_and_warnings(enabled: bool = True):
-    """Enable/disable showing DEBUG and WARNING log records globally.
+class XStream(QtCore.QObject):
+    """A thread-safe stream redirecting stdout/stderr to a Qt signal."""
 
-    INFO/ERROR/CRITICAL are unaffected and always shown.
+    _stdout: ClassVar["XStream | None"] = None
+    _stderr: ClassVar["XStream | None"] = None
+
+    message_written: QtCore.Signal = QtCore.Signal(str)
+
+    def flush(self) -> None:
+        """Flush the stream (no-op for signal-based streams)."""
+
+    def fileno(self) -> int:
+        """Return an invalid file descriptor indicating non-file stream.
+
+        Returns:
+            Always -1 to signal that this is not a real file.
+        """
+        return -1
+
+    def write(self, msg: str) -> int:
+        """Write the message to the Qt signal.
+
+        Args:
+            msg: The message to write.
+
+        Returns:
+            The number of characters written.
+        """
+        if not self.signalsBlocked():
+            self.message_written.emit(msg)
+        return len(msg)
+
+    @classmethod
+    def stdout(cls) -> "XStream":
+        """Get or create the singleton stdout XStream.
+
+        Returns:
+            The singleton XStream for stdout.
+        """
+        if not cls._stdout:
+            cls._stdout = cls()
+            sys.stdout = cast("TextIOWrapper", cls._stdout)
+        return cls._stdout
+
+    @classmethod
+    def stderr(cls) -> "XStream":
+        """Get or create the singleton stderr XStream.
+
+        Returns:
+            The singleton XStream for stderr.
+        """
+        if not cls._stderr:
+            cls._stderr = cls()
+            sys.stderr = cast("TextIOWrapper", cls._stderr)
+        return cls._stderr
+
+
+class QtHandler(logging.Handler):
+    """A logging handler that writes formatted records to XStream."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Emit a record to the XStream signal.
+
+        Args:
+            record: The log record to emit.
+        """
+        if formatted_record := self.format(record):
+            XStream.stdout().write(f"{formatted_record}\n")
+
+
+def enable_debug_and_warnings(*, enabled: bool = True) -> None:
+    """Enable/disable DEBUG and WARNING log records globally.
+
+    Args:
+        enabled: When True, DEBUG and WARNING messages are shown.
     """
-    global _VERBOSE_DEBUG
-    _VERBOSE_DEBUG = bool(enabled)
+    LoggerState.enable(enabled=enabled)
 
 
-logger_gui = logging.getLogger(__name__)
-handler_qt: QtHandler = QtHandler()
-# log_fmt: str = "[%(asctime)s] %(levelname)s: %(message)s"
-log_fmt: str = "> %(message)s"
-# formatter = logging.Formatter(log_fmt)
-# Configure custom level styles to make INFO messages green
-level_styles = coloredlogs.DEFAULT_LEVEL_STYLES.copy()
-level_styles["info"] = {"color": "green"}
-formatter = coloredlogs.ColoredFormatter(fmt=log_fmt, level_styles=level_styles)
-handler_qt.setFormatter(formatter)
-# Apply filter to control DEBUG/WARNING visibility
-handler_qt.addFilter(DebugWarningFilter())
-logger_gui.addHandler(handler_qt)
-logger_gui.setLevel(logging.DEBUG)
+def _build_formatter() -> coloredlogs.ColoredFormatter:
+    """Build a ColoredFormatter with custom info color.
 
-logger_cli = logging.getLogger(__name__)
-handler_stream: logging.StreamHandler = logging.StreamHandler()
-formatter = coloredlogs.ColoredFormatter(fmt=log_fmt, level_styles=level_styles)
-handler_stream.setFormatter(formatter)
-# Apply filter to control DEBUG/WARNING visibility
-handler_stream.addFilter(DebugWarningFilter())
-logger_cli.addHandler(handler_stream)
-logger_cli.setLevel(logging.DEBUG)
+    Returns:
+        A configured ColoredFormatter instance.
+    """
+    styles: dict[str, dict[str, str | bool]] = (
+        coloredlogs.DEFAULT_LEVEL_STYLES.copy()
+    )
+    styles["info"] = {"color": "green"}
+    return coloredlogs.ColoredFormatter(
+        fmt=LOG_FMT, level_styles=styles
+    )
+
+
+def _make_gui_logger() -> logging.Logger:
+    """Create and configure the GUI logger.
+
+    Returns:
+        A configured Logger instance for the GUI.
+    """
+    log: logging.Logger = logging.getLogger(f"{__name__}.gui")
+    handler: QtHandler = QtHandler()
+    handler.setFormatter(_build_formatter())
+    handler.addFilter(DebugWarningFilter())
+    log.addHandler(handler)
+    log.setLevel(logging.DEBUG)
+    return log
+
+
+def _make_cli_logger() -> logging.Logger:
+    """Create and configure the CLI logger.
+
+    Returns:
+        A configured Logger instance for the CLI.
+    """
+    log: logging.Logger = logging.getLogger(f"{__name__}.cli")
+    handler: logging.StreamHandler[TextIO] = logging.StreamHandler()
+    handler.setFormatter(_build_formatter())
+    handler.addFilter(DebugWarningFilter())
+    log.addHandler(handler)
+    log.setLevel(logging.DEBUG)
+    return log
+
+
+logger_gui: logging.Logger = _make_gui_logger()
+logger_cli: logging.Logger = _make_cli_logger()
+
+# Ensure runtime file logs are always available.
+setup_runtime_file_logging()

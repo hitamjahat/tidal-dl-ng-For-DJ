@@ -22,7 +22,8 @@ applyTo: "**/*.py"
 
 ## Type Annotations
 
-- Use type annotations for ALL function and method parameters, return types, and variables (PEP 484)
+- Use explicit type annotations for ALL function parameters, return types, and variables
+- NEVER use or fallback to `Any` type (strictly blocked by Mypy's `disallow_any_*` constraints)
 - Use modern built-in generics: `list`, `dict`, `set`, `tuple` instead of `List`, `Dict`, `Set`, `Tuple` from `typing`
 - Use `None` type for optional parameters: `str | None` instead of `Optional[str]`
 - Use union types with `|` operator: `int | str` instead of `Union[int, str]`
@@ -47,15 +48,9 @@ applyTo: "**/*.py"
 
 ## Code Style and Formatting
 
-- Line length: maximum 120 characters (as configured in Black and Ruff)
-- Use Black formatting style with preview features enabled
-- Follow isort configuration for import ordering:
-  1. FUTURE
-  2. TYPING
-  3. STDLIB
-  4. THIRDPARTY
-  5. FIRSTPARTY
-  6. LOCALFOLDER
+- Line length: STRICTLY maximum 79 characters (enforced across Ruff, Black, isort, and Pylint)
+- Use Ruff for all formatting (completely replaces Black and isort for maximum execution speed)
+- Import ordering is managed automatically by Ruff (`I` rules)
 - Include trailing commas in multi-line constructs
 - Use more blank lines to achieve better code organization and readability
 - Use 4 spaces for indentation (no tabs)
@@ -168,7 +163,8 @@ applyTo: "**/*.py"
 
 ## Performance
 
-- Use generators for large datasets when possible
+- Adhere strictly to Ruff's `PERF` (Perflint) and `FURB` (Refurb) rules for modern, high-performance Python constructs
+- Use generators for large datasets to minimize memory footprint
 - Implement streaming for large file downloads
 - Use appropriate chunk sizes for file I/O (use `CHUNK_SIZE` constant)
 - Cache expensive computations when safe to do so
@@ -187,12 +183,12 @@ applyTo: "**/*.py"
 
 ## Code Quality Tools
 
-- Run Ruff for linting before committing
-- Run Black for formatting before committing
-- Run mypy for type checking
-- Use pre-commit hooks to automate checks
-- Address all linting warnings and errors
-- Keep code complexity low (avoid deep nesting, long functions)
+- Run Ruff for BOTH linting and formatting before committing (`ruff check --fix .` and `ruff format .`)
+- Run Mypy (strict mode) for exhaustive type checking
+- Run PyLint (with all performance/efficiency extensions enabled)
+- Use modern pre-commit hooks to automate all checks concurrently
+- Address ABSOLUTELY ALL linting warnings and errors (no ignores are permitted in config)
+- Keep code complexity low (McCabe complexity is strictly enforced)
 
 ## Best Practices Summary
 
@@ -205,4 +201,4 @@ applyTo: "**/*.py"
 7. **Maintainability**: Keep functions focused, avoid code duplication
 8. **Security**: Validate inputs, handle credentials safely
 9. **Compatibility**: Support Python 3.12-3.13, handle cross-platform differences
-10. **Standards**: Follow PEP 8, PEP 484, and project-specific configurations
+10. **Standards**: Follow PEP 8, PEP 484, PEP 621, and adhere to max 79 line length strictly

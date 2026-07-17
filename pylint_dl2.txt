@@ -1,0 +1,6 @@
+﻿************* Module tidal_dl_ng.download
+tidal_dl_ng\download.py:1:0: C0302: Too many lines in module (2266/1000) (too-many-lines)
+
+------------------------------------------------------------------
+Your code has been rated at 9.98/10 (previous run: 9.95/10, +0.03)
+

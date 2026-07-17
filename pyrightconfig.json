@@ -1,0 +1,11 @@
+{
+  "include": ["tidal_dl_ng", "tests"],
+  "exclude": [".venv", "dist", "build", "docs", "site"],
+  "stubPath": "stubs",
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "strict",
+  "useLibraryCodeForTypes": true,
+  "reportMissingTypeStubs": "information"
+}

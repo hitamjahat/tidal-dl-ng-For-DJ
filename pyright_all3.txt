@@ -1,0 +1,6 @@
+﻿c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\tidal_dl_ng\download.py
+  c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\tidal_dl_ng\download.py:26:6 - information: Stub file not found for "ffmpeg" (reportMissingTypeStubs)
+0 errors, 0 warnings, 1 information 
+WARNING: there is a new pyright version available (v1.1.390 -> v1.1.411).
+Please install the new version or set PYRIGHT_PYTHON_FORCE_VERSION to `latest`
+

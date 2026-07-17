@@ -5,7 +5,7 @@ from Crypto.Cipher import AES
 from Crypto.Util import Counter
 
 
-def decrypt_security_token(security_token: str) -> (str, str):
+def decrypt_security_token(security_token: str) -> tuple[str, str]:
     """
     The `decrypt_security_token` function decrypts a security token into a key and nonce pair using AES
     encryption.
@@ -44,7 +44,12 @@ def decrypt_security_token(security_token: str) -> (str, str):
     return key, nonce
 
 
-def decrypt_file(path_file_encrypted: pathlib.Path, path_file_destination: pathlib.Path, key: str, nonce: str) -> None:
+def decrypt_file(
+    path_file_encrypted: pathlib.Path,
+    path_file_destination: pathlib.Path,
+    key: str,
+    nonce: str,
+) -> None:
     """
     Decrypts an encrypted MQA file given the file, key and nonce.
     TODO: Is it really only necessary for MQA of for all other formats, too?

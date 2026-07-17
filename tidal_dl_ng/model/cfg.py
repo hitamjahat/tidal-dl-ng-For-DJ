@@ -1,8 +1,10 @@
+"""Dataclass models for persistent configuration (settings and auth token)."""
+
 import datetime
 from dataclasses import dataclass
 
 from dataclasses_json import dataclass_json
-from tidalapi import Quality
+from tidalapi.media import Quality
 
 from tidal_dl_ng.constants import (
     CoverDimensions,
@@ -14,7 +16,8 @@ from tidal_dl_ng.constants import (
 @dataclass_json
 @dataclass
 class Settings:
-    skip_existing: bool = True
+    """User-configurable application settings persisted to disk."""
+
     lyrics_embed: bool = False
     lyrics_file: bool = False
     use_primary_album_artist: bool = (
@@ -79,7 +82,10 @@ class Settings:
 @dataclass_json
 @dataclass
 class HelpSettings:
+    """Human-readable descriptions for each settings field (used in UI help)."""
+
     skip_existing: str = "Skip download if file already exists."
+
     album_cover_save: str = "Save cover to album folder."
     lyrics_embed: str = "Embed lyrics in audio file, if lyrics are available."
     use_primary_album_artist: str = (
@@ -194,7 +200,10 @@ class HelpSettings:
 @dataclass_json
 @dataclass
 class Token:
+    """OAuth/PKCE authentication token persisted between sessions."""
+
     token_type: str | None = None
     access_token: str | None = None
     refresh_token: str | None = None
     expiry_time: datetime.datetime | None = None
+    is_pkce: bool = False

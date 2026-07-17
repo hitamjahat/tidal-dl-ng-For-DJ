@@ -3,6 +3,8 @@
 Handles UI helper functions like spinners, logs, and status bar messages.
 """
 
+from typing import Any
+
 from PySide6 import QtGui, QtWidgets
 
 from tidal_dl_ng.model.gui_data import StatusbarMessage
@@ -11,6 +13,13 @@ from tidal_dl_ng.ui.spinner import QtWaitingSpinner
 
 class UIHelpersMixin:
     """Mixin containing UI helper methods."""
+
+    # Attributes provided by MainWindow at runtime.
+    spinners: dict[QtWidgets.QWidget, QtWaitingSpinner]
+    statusbar: QtWidgets.QStatusBar
+    te_debug: QtWidgets.QTextEdit
+    pb_reload_user_lists: QtWidgets.QPushButton
+    converter_ansi_html: Any
 
     def on_spinner_start(self, parent: QtWidgets.QWidget) -> None:
         """Start a loading spinner on the given parent widget."""
@@ -32,7 +41,7 @@ class UIHelpersMixin:
             spinner.deleteLater()
         self.spinners.clear()
 
-    def on_statusbar_message(self, data: StatusbarMessage):
+    def on_statusbar_message(self, data: StatusbarMessage) -> None:
         """Show a message in the status bar."""
         self.statusbar.showMessage(data.message, data.timeout)
 
@@ -41,7 +50,7 @@ class UIHelpersMixin:
         cursor: QtGui.QTextCursor = self.te_debug.textCursor()
         html = self.converter_ansi_html.convert(text)
 
-        cursor.movePosition(QtGui.QTextCursor.End)
+        cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
         cursor.insertHtml(html)
         self.te_debug.setTextCursor(cursor)
         self.te_debug.ensureCursorVisible()

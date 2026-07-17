@@ -14,6 +14,7 @@ from rich.progress import Progress
 
 from tidal_dl_ng.config import HandlingApp
 from tidal_dl_ng.download import Download
+from tidal_dl_ng.model.downloader import DownloadContext
 from tidal_dl_ng.helper.gui import FilterHeader, HumanProxyModel
 from tidal_dl_ng.helper.path import resource_path
 from tidal_dl_ng.logger import logger_gui
@@ -62,14 +63,70 @@ class InitializationMixin:
     def _init_gui(self) -> None:
         """Initialize GUI-specific variables and state."""
         settings_data = cast(Any, self.settings.data)
-        self.setGeometry(
+        self._apply_window_geometry(settings_data)
+        self.spinners: dict[QtWidgets.QWidget, QtWaitingSpinner] = {}
+        self.converter_ansi_html: Ansi2HTMLConverter = Ansi2HTMLConverter()
+
+    def _apply_window_geometry(self, settings_data: Any) -> None:
+        """Apply a validated window geometry so the title bar stays on-screen.
+
+        The saved geometry can become unusable (e.g. negative y when the window
+        was maximized, or a full-screen size) which hides the title bar and makes
+        the window impossible to move, resize, minimize or maximize. We clamp the
+        saved values to the available screen and fall back to a centered ~50% size
+        when the saved geometry is missing or off-screen.
+
+        Args:
+            settings_data (Any): The settings data object holding window_* values.
+        """
+        screen = cast(Any, self).screen()
+        if screen is None:
+            screen = QtWidgets.QApplication.primaryScreen()
+        if screen is not None:
+            screen_geom = screen.availableGeometry()
+        else:
+            screen_geom = QtCore.QRect(0, 0, 1280, 720)
+
+        sw, sh = screen_geom.width(), screen_geom.height()
+
+        # Ensure standard window controls (minimize/maximize/close) are present.
+        self.setWindowFlags(
+            QtCore.Qt.WindowType.Window
+            | QtCore.Qt.WindowType.WindowMinimizeButtonHint
+            | QtCore.Qt.WindowType.WindowMaximizeButtonHint
+            | QtCore.Qt.WindowType.WindowCloseButtonHint
+        )
+
+        default_w = max(640, int(sw * 0.5))
+        default_h = max(480, int(sh * 0.5))
+        default_x = screen_geom.x() + max(0, (sw - default_w) // 2)
+        default_y = screen_geom.y() + max(0, (sh - default_h) // 2)
+
+        x, y, w, h = (
             settings_data.window_x,
             settings_data.window_y,
             settings_data.window_w,
             settings_data.window_h,
         )
-        self.spinners: dict[QtWidgets.QWidget, QtWaitingSpinner] = {}
-        self.converter_ansi_html: Ansi2HTMLConverter = Ansi2HTMLConverter()
+
+        valid_size = (
+            isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0
+        )
+        if not valid_size:
+            x, y, w, h = default_x, default_y, default_w, default_h
+        else:
+            w = min(w, sw)
+            h = min(h, sh)
+            on_screen = (
+                x >= screen_geom.x()
+                and y >= screen_geom.y()
+                and (x + w) <= screen_geom.right() + 1
+                and (y + h) <= screen_geom.bottom() + 1
+            )
+            if not on_screen:
+                x, y = default_x, default_y
+
+        self.setGeometry(x, y, w, h)
 
     def _init_threads(self) -> None:
         """Initialize thread pool and start background workers."""
@@ -93,10 +150,12 @@ class InitializationMixin:
             skip_existing=tidal_settings_data.skip_existing,
             path_base=settings_data.download_base_path,
             fn_logger=cast(Any, logger_gui),
-            progress_gui=data_pb,
-            progress=progress,
-            event_abort=handling_app.event_abort,
-            event_run=handling_app.event_run,
+            context=DownloadContext(
+                progress_gui=data_pb,
+                progress=progress,
+                event_abort=handling_app.event_abort,
+                event_run=handling_app.event_run,
+            ),
         )
 
     def _init_progressbar(self) -> None:
@@ -188,12 +247,19 @@ class InitializationMixin:
         model.setRowCount(0)
         model.setHorizontalHeaderLabels(labels_column)
 
-    def _init_tree_queue(self, tree: QtWidgets.QTableWidget) -> None:
-        """Initialize the download queue table widget."""
+    def _init_tree_queue(
+        self, tree: QtWidgets.QTreeWidget | QtWidgets.QTableWidget
+    ) -> None:
+        """Initialize the download queue widget."""
         tree.setColumnHidden(1, True)
         tree.setColumnWidth(2, 200)
 
-        header = tree.horizontalHeader()
+        # Queue UI is a QTreeWidget in current UI generation, but keep this
+        # resilient if it becomes a QTableWidget again.
+        if isinstance(tree, QtWidgets.QTreeWidget):
+            header = tree.header()
+        else:
+            header = tree.horizontalHeader()
         if hasattr(header, "setSectionResizeMode"):
             header.setSectionResizeMode(
                 0,

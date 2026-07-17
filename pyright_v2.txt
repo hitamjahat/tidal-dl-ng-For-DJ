@@ -1,0 +1,52 @@
+﻿Loading configuration file at c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\pyrightconfig.json
+Setting pythonPath for service "<default>": "C:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\.venv\Scripts\python.exe"
+Execution environment: file:///c%3A/Users/Pascasarjana/Documents/tidal-dl-ng-For-DJ/.venv/Scripts/python.exe
+  Extra paths:
+    (none)
+  Python version: 3.12
+  Python platform: Windows
+  Search paths:
+    c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\.venv\Lib\site-packages\pyright\dist\dist\typeshed-fallback\stdlib
+    c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ
+    c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\stubs
+    c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\.venv\Lib\site-packages\pyright\dist\dist\typeshed-fallback\stubs\...
+    c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\.venv\Lib\site-packages
+    c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ
+    c:\Program Files\Python312\DLLs
+    c:\Program Files\Python312\Lib
+    c:\Program Files\Python312
+    c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\.venv
+Found 1 source file
+Could not import 'annotationlib' in file 'c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\.venv\Lib\site-packages\pyright\dist\dist\typeshed-fallback\stdlib\typing_extensions.pyi'
+Could not import 'annotationlib' in file 'c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\.venv\Lib\site-packages\pyright\dist\dist\typeshed-fallback\stdlib\typing.pyi'
+Could not import 'annotationlib' in file 'c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\.venv\Lib\site-packages\pyright\dist\dist\typeshed-fallback\stdlib\typing.pyi'
+Could not import 'annotationlib' in file 'c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\.venv\Lib\site-packages\pyright\dist\dist\typeshed-fallback\stdlib\_typeshed\__init__.pyi'
+Could not import 'pathlib.types' in file 'c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\.venv\Lib\site-packages\pyright\dist\dist\typeshed-fallback\stdlib\pathlib\__init__.pyi'
+  Looking in stubPath 'file:///c%3A/Users/Pascasarjana/Documents/tidal-dl-ng-For-DJ/stubs'
+  Looking in root directory of execution environment 'file:///c%3A/Users/Pascasarjana/Documents/tidal-dl-ng-For-DJ'
+  Looking for typeshed stdlib path
+  Looking for typeshed stdlib path
+  Typeshed path not found
+  Looking in python search path 'file:///c%3A/Users/Pascasarjana/Documents/tidal-dl-ng-For-DJ/.venv/Lib/site-packages'
+  Looking in python search path 'file:///c%3A/Users/Pascasarjana/Documents/tidal-dl-ng-For-DJ'
+  Looking in python search path 'file:///c%3A/Program%20Files/Python312/DLLs'
+  Looking in python search path 'file:///c%3A/Program%20Files/Python312/Lib'
+  Attempting to resolve stub package using root path 'file:///c%3A/Program%20Files/Python312/Lib'
+  Attempting to resolve using root path 'file:///c%3A/Program%20Files/Python312/Lib'
+  Resolved import with file 'file:///c%3A/Program%20Files/Python312/Lib/pathlib.py'
+  Looking in python search path 'file:///c%3A/Program%20Files/Python312'
+  Looking in python search path 'file:///c%3A/Users/Pascasarjana/Documents/tidal-dl-ng-For-DJ/.venv'
+  Looking for typeshed third-party path
+  Looking for typeshed stubs path
+  Typeshed path not found
+Could not import 'chardet' in file 'c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\.venv\Lib\site-packages\requests\__init__.py'
+Could not import 'cryptography' in file 'c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\.venv\Lib\site-packages\requests\__init__.py'
+Could not import 'IPython.display' in file 'c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\.venv\Lib\site-packages\rich\jupyter.py'
+pyright 1.1.411
+c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\tidal_dl_ng\model\downloader.py
+  c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\tidal_dl_ng\model\downloader.py:197:5 - error: Type of "extras" is partially unknown
+  ┬á┬áType of "extras" is "dict[Unknown, Unknown]" (reportUnknownVariableType)
+  c:\Users\Pascasarjana\Documents\tidal-dl-ng-For-DJ\tidal_dl_ng\model\downloader.py:255:5 - error: Type of "urls" is partially unknown
+  ┬á┬áType of "urls" is "list[Unknown]" (reportUnknownVariableType)
+2 errors, 0 warnings, 0 informations
+Completed in 0.415sec

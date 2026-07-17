@@ -1,23 +1,41 @@
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from tidalapi.media import Quality
 
 from tidal_dl_ng.constants import QualityVideo
 
-try:
+if TYPE_CHECKING:
     from PySide6 import QtCore
 
     @dataclass
     class ProgressBars:
-        item: QtCore.Signal
-        item_name: QtCore.Signal
-        list_item: QtCore.Signal
-        list_name: QtCore.Signal
+        """Signal instances used to report progress to the GUI."""
 
-except ModuleNotFoundError:
+        item: QtCore.SignalInstance
+        item_name: QtCore.SignalInstance
+        list_item: QtCore.SignalInstance
+        list_name: QtCore.SignalInstance
 
-    class ProgressBars:
-        pass
+else:
+    try:
+        from PySide6 import QtCore
+
+        @dataclass
+        class ProgressBars:
+            """Signal instances used to report progress to the GUI."""
+
+            item: QtCore.SignalInstance
+            item_name: QtCore.SignalInstance
+            list_item: QtCore.SignalInstance
+            list_name: QtCore.SignalInstance
+
+    except ModuleNotFoundError:
+
+        class ProgressBars:
+            """Fallback placeholder when PySide6 is unavailable."""
+
+            pass
 
 
 @dataclass

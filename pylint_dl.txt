@@ -1,0 +1,8 @@
+﻿************* Module tidal_dl_ng.download
+tidal_dl_ng\download.py:1:0: C0302: Too many lines in module (2265/1000) (too-many-lines)
+tidal_dl_ng\download.py:111:4: W0231: __init__ method from base class 'MetadataWriterMixin' is not called (super-init-not-called)
+tidal_dl_ng\download.py:111:4: W0231: __init__ method from base class 'CollectionDownloadMixin' is not called (super-init-not-called)
+
+------------------------------------------------------------------
+Your code has been rated at 9.95/10 (previous run: 9.97/10, -0.02)
+

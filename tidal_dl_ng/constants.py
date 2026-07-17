@@ -1,7 +1,11 @@
+"""Global constants and configuration settings for the application."""
+
+# pylint: disable=invalid-name,consider-using-namedtuple-or-dataclass
+
 import base64
 from enum import StrEnum
 
-from tidalapi import Quality
+from tidalapi.media import Quality
 
 CTX_TIDAL: str = "tidal"
 REQUESTS_TIMEOUT_SEC: int = 45
@@ -20,7 +24,9 @@ METADATA_EXPLICIT: str = " 🅴"
 
 # Dolby Atmos API credentials (obfuscated)
 ATMOS_ID_B64 = "N203QX" + "AwSkM5aj" + "FjT00zbg=="
-ATMOS_SECRET_B64 = "dlJBZEEx" + "MDh0bHZrSnB" + "Uc0daUzhyR1" + "o3eFRsYkow" + "cWFaMks5c2F" + "FenNnWT0="
+ATMOS_SECRET_B64 = (
+    "dlJBZEExMDh0bHZrSnBUc0daUzhyR1o3eFRsYkowcWFaMks5c2FFenNnWT0="  # noqa: S105
+)
 
 ATMOS_CLIENT_ID = base64.b64decode(ATMOS_ID_B64).decode("utf-8")
 ATMOS_CLIENT_SECRET = base64.b64decode(ATMOS_SECRET_B64).decode("utf-8")
@@ -28,6 +34,8 @@ ATMOS_REQUEST_QUALITY = Quality.low_320k
 
 
 class QualityVideo(StrEnum):
+    """Available video quality options."""
+
     P360 = "360"
     P480 = "480"
     P720 = "720"
@@ -35,6 +43,8 @@ class QualityVideo(StrEnum):
 
 
 class MediaType(StrEnum):
+    """Available media types for processing."""
+
     TRACK = "track"
     VIDEO = "video"
     PLAYLIST = "playlist"
@@ -44,6 +54,8 @@ class MediaType(StrEnum):
 
 
 class CoverDimensions(StrEnum):
+    """Available cover art dimensions."""
+
     Px80 = "80"
     Px160 = "160"
     Px320 = "320"
@@ -53,12 +65,16 @@ class CoverDimensions(StrEnum):
 
 
 class TidalLists(StrEnum):
+    """Types of lists available in Tidal."""
+
     Playlists = "Playlists"
     Favorites = "Favorites"
     Mixes = "Mixes"
 
 
 class QueueDownloadStatus(StrEnum):
+    """Status icons for the download queue."""
+
     Waiting = "⏳️"
     Downloading = "▶️"
     Finished = "✅"
@@ -76,6 +92,8 @@ FAVORITES: dict[str, dict[str, str]] = {
 
 
 class AudioExtensionsValid(StrEnum):
+    """Valid audio file extensions."""
+
     FLAC = ".flac"
     M4A = ".m4a"
     MP4 = ".mp4"
@@ -85,6 +103,8 @@ class AudioExtensionsValid(StrEnum):
 
 
 class MetadataTargetUPC(StrEnum):
+    """Target tags for UPC/Barcode metadata."""
+
     UPC = "UPC"
     BARCODE = "BARCODE"
     EAN = "EAN"

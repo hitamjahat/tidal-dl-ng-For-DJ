@@ -32,7 +32,7 @@ class UserNotAuthenticated(ValueError):
 # Ensure Session exposes a 'request' attribute so tests using Mock(spec=Session) can set it
 try:
     if not hasattr(Session, "request"):
-        Session.request = None  # type: ignore[attr-defined]
+        Session.request = None
 except Exception as e:  # pragma: no cover - defensive
     logger_gui.debug(f"Could not add request attribute to Session: {e}")
 

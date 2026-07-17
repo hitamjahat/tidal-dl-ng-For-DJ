@@ -1,7 +1,7 @@
 site_name: tidal-dl-ng
 repo_url: https://github.com/FunWarry/tidal-dl-ng-For-DJ
 site_url: https://exislow.github.io/tidal-dl-ng
-site_description: TIDAL Medial Downloader Next Generation!
+site_description: TIDAL Media Downloader Next Generation!
 site_author: Robert Honz
 edit_uri: edit/main/docs/
 repo_name: FunWarry/tidal-dl-ng-For-DJ
@@ -10,18 +10,28 @@ copyright: Maintained by <a href="https://example.com">Robby</a>.
 nav:
   - Home: index.md
   - Modules: modules.md
+
 plugins:
   - search
   - mkdocstrings:
       handlers:
         python:
-          setup_commands:
-            - import sys
-            - sys.path.append('../')
+          paths: [.]
+          options:
+            show_root_heading: true
+            show_source: true
+            docstring_style: google
+
 theme:
   name: material
-  feature:
-    tabs: true
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -50,5 +60,16 @@ extra:
 markdown_extensions:
   - toc:
       permalink: true
+  - attr_list
+  - md_in_html
+  - admonition
+  - pymdownx.details
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
   - pymdownx.arithmatex:
       generic: true

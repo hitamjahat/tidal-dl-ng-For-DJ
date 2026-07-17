@@ -54,13 +54,9 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
     """
 
     # Signals
-    playlist_added: QtCore.Signal = QtCore.Signal(
-        str, str
-    )  # track_id, playlist_id
+    playlist_added: QtCore.Signal = QtCore.Signal(str, str)  # track_id, playlist_id
     playlist_removed: QtCore.Signal = QtCore.Signal(str, str)
-    transaction_finished: QtCore.Signal = QtCore.Signal(
-        str, str, bool, bool, str
-    )
+    transaction_finished: QtCore.Signal = QtCore.Signal(str, str, bool, bool, str)
     # playlist_id, track_id, is_checked, success, message
 
     def __init__(
@@ -97,7 +93,7 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
 
         # Use compiled .ui
         self.ui = Ui_DialogPlaylistManager()
-        self.ui.setupUi(self)  # type: ignore[no-untyped-call]
+        self.ui.setupUi(self)
 
         self.transaction_finished.connect(self._on_transaction_finished)
 
@@ -130,9 +126,7 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
         # Sort playlists alphabetically by name/ID
         sorted_playlist_ids: list[str] = sorted(
             all_playlist_ids,
-            key=lambda pid: str(
-                self.cache.get_playlist_metadata(pid).get("name", pid)
-            ).lower(),
+            key=lambda pid: str(self.cache.get_playlist_metadata(pid).get("name", pid)).lower(),
         )
 
         # Create checkbox for each playlist
@@ -141,15 +135,11 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
         for playlist_id in sorted_playlist_ids:
             # Get playlist info
             metadata = self.cache.get_playlist_metadata(playlist_id)
-            playlist_name: str = str(
-                metadata.get("name", f"Playlist {playlist_id}")
-            )
+            playlist_name: str = str(metadata.get("name", f"Playlist {playlist_id}"))
             item_count: int = int(metadata.get("item_count", 0))
 
             # Check if track is in this playlist
-            is_in_playlist: bool = self.cache.is_track_in_playlist(
-                track_id, playlist_id
-            )
+            is_in_playlist: bool = self.cache.is_track_in_playlist(track_id, playlist_id)
             self._original_states[playlist_id] = is_in_playlist
 
             # Row widget
@@ -185,9 +175,7 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
             # Stretch
             row_layout.addStretch()
 
-            self.ui.verticalLayoutList.insertWidget(
-                self.ui.verticalLayoutList.count() - 1, row_widget
-            )  # before spacer
+            self.ui.verticalLayoutList.insertWidget(self.ui.verticalLayoutList.count() - 1, row_widget)  # before spacer
 
     def _on_playlist_checkbox_toggled(
         self,
@@ -195,16 +183,10 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
         playlist_id: str,
     ) -> None:
         """Bridge Qt signal to typed state-change handler."""
-        state = (
-            QtCore.Qt.CheckState.Checked.value
-            if checkbox.isChecked()
-            else QtCore.Qt.CheckState.Unchecked.value
-        )
+        state = QtCore.Qt.CheckState.Checked.value if checkbox.isChecked() else QtCore.Qt.CheckState.Unchecked.value
         self._on_playlist_checkbox_changed(checkbox, playlist_id, state)
 
-    def _on_playlist_checkbox_changed(
-        self, checkbox: QtWidgets.QCheckBox, playlist_id: str, state: int
-    ) -> None:
+    def _on_playlist_checkbox_changed(self, checkbox: QtWidgets.QCheckBox, playlist_id: str, state: int) -> None:
         """Handle checkbox state change for a playlist.
 
         Implements transactional logic:
@@ -232,7 +214,7 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
         if is_checked:
             # Add track to playlist
             worker_ctor = cast(object, Worker)
-            worker: Worker = worker_ctor(  # type: ignore[operator]
+            worker: Worker = worker_ctor(
                 self._api_add_track_to_playlist,
                 track_id,
                 playlist_id,
@@ -241,7 +223,7 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
         else:
             # Remove track from playlist
             worker_ctor = cast(object, Worker)
-            worker = worker_ctor(  # type: ignore[operator]
+            worker = worker_ctor(
                 self._api_remove_track_from_playlist,
                 track_id,
                 playlist_id,
@@ -272,9 +254,7 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
 
             # Success: update cache and UI
             self.cache.add_track_to_playlist(track_id, playlist_id)
-            self.transaction_finished.emit(
-                playlist_id, track_id, True, True, ""
-            )
+            self.transaction_finished.emit(playlist_id, track_id, True, True, "")
 
         except RequestException:
             self.transaction_finished.emit(
@@ -314,9 +294,7 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
 
             # Success: update cache and UI
             self.cache.remove_track_from_playlist(track_id, playlist_id)
-            self.transaction_finished.emit(
-                playlist_id, track_id, False, True, ""
-            )
+            self.transaction_finished.emit(playlist_id, track_id, False, True, "")
 
         except RequestException:
             self.transaction_finished.emit(
@@ -336,9 +314,7 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
                 "Erreur lors de la modification",
             )
 
-    def _find_playlist_checkbox(
-        self, playlist_id: str
-    ) -> QtWidgets.QCheckBox | None:
+    def _find_playlist_checkbox(self, playlist_id: str) -> QtWidgets.QCheckBox | None:
         """Find the checkbox associated with a playlist id."""
         for checkbox in self.findChildren(QtWidgets.QCheckBox):
             if str(checkbox.property("playlist_id")) == playlist_id:

@@ -1,6 +1,15 @@
 #!/usr/bin/env python
+"""CLI entry point for tidal-dl-ng.
+
+Provides Typer-based commands for downloading TIDAL media via URLs,
+favorites collections, and interactive GUI launch.
+"""
+
+# ruff: noqa: T201
+
 import signal
 import sys
+import types
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
@@ -22,6 +31,7 @@ from tidal_dl_ng import __version__
 from tidal_dl_ng.config import HandlingApp, Settings, Tidal
 from tidal_dl_ng.constants import CTX_TIDAL, MediaType
 from tidal_dl_ng.download import Download
+from tidal_dl_ng.model.downloader import DownloadContext, ItemRequest
 from tidal_dl_ng.helper.path import get_format_template, path_file_settings
 from tidal_dl_ng.helper.tidal import (
     all_artist_album_ids,
@@ -33,7 +43,10 @@ from tidal_dl_ng.helper.tidal import (
 from tidal_dl_ng.helper.wrapper import LoggerWrapped
 from tidal_dl_ng.model.cfg import HelpSettings
 
-app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]}, add_completion=False)
+app = typer.Typer(
+    context_settings={"help_option_names": ["-h", "--help"]},
+    add_completion=False,
+)
 app_dl_fav = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
     add_completion=True,
@@ -43,59 +56,75 @@ app_dl_fav = typer.Typer(
 app.add_typer(app_dl_fav, name="dl_fav")
 
 
-def version_callback(value: bool):
+def version_callback(value: bool) -> None:
     """Callback to print version and exit if version flag is set.
 
     Args:
-        value (bool): If True, prints version and exits.
+        value: If True, prints version and exits.
     """
     if value:
         print(f"{__version__}")
-
         raise typer.Exit()
 
 
 @app.callback()
 def callback_app(
     ctx: typer.Context,
-    version: Annotated[bool | None, typer.Option("--version", "-v", callback=version_callback, is_eager=True)] = None,
-):
+    version: Annotated[
+        bool | None,
+        typer.Option(
+            "--version",
+            "-v",
+            callback=version_callback,
+            is_eager=True,
+        ),
+    ] = None,
+) -> None:
     """App callback to initialize context and handle version option.
 
     Args:
-        ctx (typer.Context): Typer context object.
-        version (bool | None, optional): Version flag. Defaults to None.
+        ctx: Typer context object.
+        version: Version flag. Defaults to None.
     """
+    _ = version
     ctx.obj = {"tidal": None}
 
 
-def _handle_track_or_video(
-    dl: Download, ctx: typer.Context, item: str, media: object, file_template: str, idx: int, urls_pos_last: int
+def _handle_track_or_video(  # pylint: disable=too-many-arguments
+    dl: Download,
+    ctx: typer.Context,
+    media: object,
+    file_template: str,
+    idx: int,
+    urls_pos_last: int,
 ) -> None:
     """Handle downloading a track or video item.
 
     Args:
-        dl (Download): The Download instance.
-        ctx (typer.Context): Typer context object.
-        item (str): The URL or identifier of the item.
+        dl: The Download instance.
+        ctx: Typer context object.
         media: The media object to download.
-        file_template (str): The file template for saving the media.
-        idx (int): The index of the item in the list.
-        urls_pos_last (int): The last index in the URLs list.
+        file_template: The file template for saving the media.
+        idx: The index of the item in the list.
+        urls_pos_last: The last index in the URLs list.
     """
     settings = ctx.obj[CTX_TIDAL].settings
-    download_delay: bool = bool(settings.data.download_delay and idx < urls_pos_last)
+    download_delay: bool = bool(
+        settings.data.download_delay and idx < urls_pos_last
+    )
 
     dl.item(
-        media=media,
-        file_template=file_template,
-        download_delay=download_delay,
-        quality_audio=settings.data.quality_audio,
-        quality_video=settings.data.quality_video,
+        ItemRequest(
+            media=media,
+            file_template=file_template,
+            download_delay=download_delay,
+            quality_audio=settings.data.quality_audio,
+            quality_video=settings.data.quality_video,
+        )
     )
 
 
-def _handle_album_playlist_mix_artist(
+def _handle_album_playlist_mix_artist(  # pylint: disable=too-many-arguments
     ctx: typer.Context,
     dl: Download,
     handling_app: HandlingApp,
@@ -107,13 +136,13 @@ def _handle_album_playlist_mix_artist(
     """Handle downloading albums, playlists, mixes, or artist collections.
 
     Args:
-        ctx (typer.Context): Typer context object.
-        dl (Download): The Download instance.
-        handling_app (HandlingApp): The HandlingApp instance.
-        media_type (MediaType): The type of media (album, playlist, mix, or artist).
+        ctx: Typer context object.
+        dl: The Download instance.
+        handling_app: The HandlingApp instance.
+        media_type: The type of media (album, playlist, mix, or artist).
         media: The media object to download.
-        item_id (str): The ID of the media item.
-        file_template (str): The file template for saving the media.
+        item_id: The ID of the media item.
+        file_template: The file template for saving the media.
 
     Returns:
         bool: False if aborted, True otherwise.
@@ -132,19 +161,21 @@ def _handle_album_playlist_mix_artist(
             return False
 
         dl.items(
-            media_id=_item_id,
-            media_type=media_type,
-            file_template=file_template,
-            video_download=settings.data.video_download,
-            download_delay=settings.data.download_delay,
-            quality_audio=settings.data.quality_audio,
-            quality_video=settings.data.quality_video,
+            ItemRequest(
+                media_id=_item_id,
+                media_type=media_type,
+                file_template=file_template,
+                video_download=settings.data.video_download,
+                download_delay=settings.data.download_delay,
+                quality_audio=settings.data.quality_audio,
+                quality_video=settings.data.quality_video,
+            )
         )
 
     return True
 
 
-def _process_url(
+def _process_url(  # pylint: disable=too-many-return-statements
     dl: Download,
     ctx: typer.Context,
     handling_app: HandlingApp,
@@ -155,12 +186,12 @@ def _process_url(
     """Process a single URL or ID for download.
 
     Args:
-        dl (Download): The Download instance.
-        ctx (typer.Context): Typer context object.
-        handling_app (HandlingApp): The HandlingApp instance.
-        url (str): The URL or identifier to process.
-        idx (int): The index of the url in the list.
-        urls_pos_last (int): The last index in the URLs list.
+        dl: The Download instance.
+        ctx: Typer context object.
+        handling_app: The HandlingApp instance.
+        url: The URL or identifier to process.
+        idx: The index of the url in the list.
+        urls_pos_last: The last index in the URLs list.
 
     Returns:
         bool: False if aborted, True otherwise.
@@ -192,25 +223,49 @@ def _process_url(
         return True
 
     try:
-        media = instantiate_media(ctx.obj[CTX_TIDAL].session, media_type, url_clean_id)
-    except Exception:
-        print(f"Media not found (ID: {url_clean_id}). Maybe it is not available anymore.")
+        media = instantiate_media(
+            ctx.obj[CTX_TIDAL].session, media_type, url_clean_id
+        )
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        print(
+            f"Media not found (ID: {url_clean_id}). "
+            "Maybe it is not available anymore."
+        )
         return True
 
-    if media_type in [MediaType.TRACK, MediaType.VIDEO]:
-        _handle_track_or_video(dl, ctx, url_clean, media, file_template, idx, urls_pos_last)
-    elif media_type in [MediaType.ALBUM, MediaType.PLAYLIST, MediaType.MIX, MediaType.ARTIST]:
-        return _handle_album_playlist_mix_artist(ctx, dl, handling_app, media_type, media, url_clean_id, file_template)
+    if media_type in {MediaType.TRACK, MediaType.VIDEO}:
+        _handle_track_or_video(
+            dl, ctx, media, file_template, idx, urls_pos_last
+        )
+    elif media_type in {
+        MediaType.ALBUM,
+        MediaType.PLAYLIST,
+        MediaType.MIX,
+        MediaType.ARTIST,
+    }:
+        return _handle_album_playlist_mix_artist(
+            ctx,
+            dl,
+            handling_app,
+            media_type,
+            media,
+            url_clean_id,
+            file_template,
+        )
     return True
 
 
-def _download(ctx: typer.Context, urls: list[str], try_login: bool = True) -> bool:
-    """Invokes download function and tracks progress.
+def _download(
+    ctx: typer.Context,
+    urls: list[str],
+    try_login: bool = True,  # noqa: FBT001, FBT002
+) -> bool:
+    """Invoke download and track progress for a list of URLs.
 
     Args:
-        ctx (typer.Context): The typer context object.
-        urls (list[str]): The list of URLs to download.
-        try_login (bool, optional): If true, attempts to login to TIDAL. Defaults to True.
+        ctx: The typer context object.
+        urls: The list of URLs to download.
+        try_login: If true, attempts to login to TIDAL. Defaults to True.
 
     Returns:
         bool: True if ran successfully.
@@ -247,13 +302,14 @@ def _download(ctx: typer.Context, urls: list[str], try_login: bool = True) -> bo
 
     dl = Download(
         tidal_obj=ctx.obj[CTX_TIDAL],
-        skip_existing=settings.data.skip_existing,
         path_base=settings.data.download_base_path,
         fn_logger=fn_logger,
-        progress=progress,
-        progress_overall=progress_overall,
-        event_abort=handling_app.event_abort,
-        event_run=handling_app.event_run,
+        context=DownloadContext(
+            progress=progress,
+            progress_overall=progress_overall,
+            event_abort=handling_app.event_abort,
+            event_run=handling_app.event_run,
+        ),
     )
 
     progress_table = Table.grid()
@@ -263,10 +319,19 @@ def _download(ctx: typer.Context, urls: list[str], try_login: bool = True) -> bo
 
     urls_pos_last = len(urls) - 1
 
-    with Live(progress_group, refresh_per_second=20, vertical_overflow="visible"):
+    with Live(
+        progress_group,
+        refresh_per_second=20,
+        vertical_overflow="visible",
+    ):
         try:
             for idx, item in enumerate(urls):
-                if _process_url(dl, ctx, handling_app, item, idx, urls_pos_last) is False:
+                if (
+                    _process_url(
+                        dl, ctx, handling_app, item, idx, urls_pos_last
+                    )
+                    is False
+                ):
                     return False
         finally:
             progress.refresh()
@@ -279,27 +344,33 @@ def _download(ctx: typer.Context, urls: list[str], try_login: bool = True) -> bo
 def settings_management(
     names: Annotated[list[str] | None, typer.Argument()] = None,
     editor: Annotated[
-        bool, typer.Option("--editor", "-e", help="Open the settings file in your default editor.")
+        bool,
+        typer.Option(
+            "--editor",
+            "-e",
+            help="Open the settings file in your default editor.",
+        ),
     ] = False,
 ) -> None:
     """Print or set an option, or open the settings file in an editor.
 
     Args:
-        names (list[str] | None, optional): None (list all options), one (list the value only for this option) or two arguments (set the value for the option). Defaults to None.
-        editor (bool, optional): If set, your default system editor will be opened. Defaults to False.
+        names: None (list all options), one (list value) or two arguments
+            (set value for the option). Defaults to None.
+        editor: If set, your default system editor will be opened.
     """
     if editor:
         config_path: Path = Path(path_file_settings())
 
         if not config_path.is_file():
-            config_path.write_text('{"version": "1.0.0"}')
+            config_path.write_text('{"version": "1.0.0"}', encoding="utf-8")
 
-        config_file_str = str(config_path)
-
-        typer.launch(config_file_str)
+        typer.launch(str(config_path))
     else:
         settings = Settings()
-        d_settings = settings.data.to_dict()
+        d_settings: dict[str, object] = dict(
+            settings.data.to_dict()  # type: ignore[attr-defined]
+        )
 
         if names:
             if names[0] not in d_settings:
@@ -310,14 +381,16 @@ def settings_management(
                 settings.set_option(names[0], names[1])
                 settings.save()
         else:
-            help_settings: dict = HelpSettings().to_dict()
+            help_settings: dict[str, str] = dict(
+                HelpSettings().to_dict()  # type: ignore[attr-defined]
+            )
             table = Table(title=f"Config: {path_file_settings()}")
             table.add_column("Key", style="cyan", no_wrap=True)
             table.add_column("Value", style="magenta")
             table.add_column("Description", style="green")
 
             for key, value in sorted(d_settings.items()):
-                table.add_row(key, str(value), help_settings[key])
+                table.add_row(str(key), str(value), str(help_settings[key]))
 
             console = Console()
             console.print(table)
@@ -328,7 +401,7 @@ def login(ctx: typer.Context) -> bool:
     """Login to TIDAL and update context object.
 
     Args:
-        ctx (typer.Context): Typer context object.
+        ctx: Typer context object.
 
     Returns:
         bool: True if login was successful, False otherwise.
@@ -352,9 +425,8 @@ def logout() -> bool:
     """
     settings = Settings()
     tidal = Tidal(settings)
-    result = tidal.logout()
 
-    if result:
+    if result := tidal.logout():
         print("You have been successfully logged out.")
 
     return result
@@ -382,21 +454,20 @@ def download(
     """Download media from provided URLs or a file containing URLs.
 
     Args:
-        ctx (typer.Context): Typer context object.
-        urls (list[str] | None, optional): List of URLs to download. Defaults to None.
-        file_urls (Path | None, optional): Path to file containing URLs. Defaults to None.
+        ctx: Typer context object.
+        urls: List of URLs to download. Defaults to None.
+        file_urls: Path to file containing URLs. Defaults to None.
 
     Returns:
         bool: True if download was successful, False otherwise.
     """
     if not urls:
-        # Read the text file provided.
         if file_urls:
-            text: str = file_urls.read_text()
-            urls = text.splitlines()
+            urls = file_urls.read_text(encoding="utf-8").splitlines()
         else:
-            print("Provide either URLs or a file containing URLs (one per line).")
-
+            print(
+                "Provide either URLs or a file containing URLs (one per line)."
+            )
             raise typer.Abort()
 
     return _download(ctx, urls)
@@ -410,15 +481,12 @@ def download_fav_tracks(ctx: typer.Context) -> bool:
     """Download your favorite track collection.
 
     Args:
-        ctx (typer.Context): Typer context object.
+        ctx: Typer context object.
 
     Returns:
         bool: Download result.
     """
-    # Method name
-    func_name_favorites: str = "tracks"
-
-    return _download_fav_factory(ctx, func_name_favorites)
+    return _download_fav_factory(ctx, "tracks")
 
 
 @app_dl_fav.command(
@@ -429,15 +497,12 @@ def download_fav_artists(ctx: typer.Context) -> bool:
     """Download your favorite artist collection.
 
     Args:
-        ctx (typer.Context): Typer context object.
+        ctx: Typer context object.
 
     Returns:
         bool: Download result.
     """
-    # Method name
-    func_name_favorites: str = "artists"
-
-    return _download_fav_factory(ctx, func_name_favorites)
+    return _download_fav_factory(ctx, "artists")
 
 
 @app_dl_fav.command(
@@ -448,15 +513,12 @@ def download_fav_albums(ctx: typer.Context) -> bool:
     """Download your favorite album collection.
 
     Args:
-        ctx (typer.Context): Typer context object.
+        ctx: Typer context object.
 
     Returns:
         bool: Download result.
     """
-    # Method name
-    func_name_favorites: str = "albums"
-
-    return _download_fav_factory(ctx, func_name_favorites)
+    return _download_fav_factory(ctx, "albums")
 
 
 @app_dl_fav.command(
@@ -467,69 +529,76 @@ def download_fav_videos(ctx: typer.Context) -> bool:
     """Download your favorite video collection.
 
     Args:
-        ctx (typer.Context): Typer context object.
+        ctx: Typer context object.
 
     Returns:
         bool: Download result.
     """
-    # Method name
-    func_name_favorites: str = "videos"
-
-    return _download_fav_factory(ctx, func_name_favorites)
+    return _download_fav_factory(ctx, "videos")
 
 
-def _download_fav_factory(ctx: typer.Context, func_name_favorites: str) -> bool:
-    """Factory which helps to download items from the favorites collections.
+def _download_fav_factory(
+    ctx: typer.Context, func_name_favorites: str
+) -> bool:
+    """Factory which downloads items from the favorites collections.
 
     Args:
-        ctx (typer.Context): Typer context object.
-        func_name_favorites (str): Method name to call from `tidalapi` favorites object.
+        ctx: Typer context object.
+        func_name_favorites: Method name to call from tidalapi favorites.
 
     Returns:
         bool: Download result.
     """
     ctx.invoke(login, ctx)
-    func_favorites: Callable = getattr(ctx.obj[CTX_TIDAL].session.user.favorites, func_name_favorites)
-    media_urls: list[str] = [media.share_url for media in func_favorites()]
+    func_favorites: Callable[[], list[object]] = getattr(
+        ctx.obj[CTX_TIDAL].session.user.favorites, func_name_favorites
+    )
+    media_urls: list[str] = [
+        str(getattr(media, "share_url", "")) for media in func_favorites()
+    ]
     return _download(ctx, media_urls, try_login=False)
 
 
 @app.command()
-def gui(ctx: typer.Context):
+def gui(ctx: typer.Context) -> None:
     """Launch the GUI for the application.
 
     Args:
-        ctx (typer.Context): Typer context object.
+        ctx: Typer context object.
     """
-    from tidal_dl_ng.gui import gui_activate
+    from tidal_dl_ng.gui import gui_activate  # noqa: PLC0415
 
     ctx.invoke(login, ctx)
     gui_activate(ctx.obj[CTX_TIDAL])
 
 
-def handle_sigint_term(signum, frame):
-    """Set app abort event, so threads can check it and shutdown.
+def handle_sigint_term(
+    signum: int,
+    frame: types.FrameType | None,
+) -> None:
+    """Set app abort event so threads can check it and shutdown.
 
     Args:
         signum: Signal number.
-        frame: Current stack frame.
+        frame: Current stack frame (may be None).
     """
-    handling_app: HandlingApp = HandlingApp()
-
-    handling_app.event_abort.set()
+    _ = signum
+    _ = frame
+    HandlingApp().event_abort.set()
 
 
 if __name__ == "__main__":
-    # Catch CTRL+C
+    # Catch CTRL+C and SIGTERM for graceful shutdown.
     signal.signal(signal.SIGINT, handle_sigint_term)
     signal.signal(signal.SIGTERM, handle_sigint_term)
 
-    # Check if the first argument is a URL. Hacky solution, since Typer does not support positional arguments without options / commands.
+    # Check if the first argument is a URL. Hacky solution — Typer does
+    # not support positional arguments without options/commands.
     if len(sys.argv) > 1:
         first_arg = sys.argv[1]
         parsed_url = urlparse(first_arg)
 
-        if parsed_url.scheme in ["http", "https"] and parsed_url.netloc:
+        if parsed_url.scheme in {"http", "https"} and parsed_url.netloc:
             # Rewrite sys.argv to simulate `dl <URL>`
             sys.argv.insert(1, "dl")
 

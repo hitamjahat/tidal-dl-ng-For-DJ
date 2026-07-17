@@ -1,7 +1,6 @@
-# tidal_dl_ng/queue.py
-
+import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi import Album, Artist, Mix, Playlist, Quality, Track, Video
@@ -21,23 +20,25 @@ from tidal_dl_ng.logger import logger_gui
 from tidal_dl_ng.model.gui_data import QueueDownloadItem, StatusbarMessage
 
 if TYPE_CHECKING:
-    from tidal_dl_ng.gui import MainWindow
+    from tidal_dl_ng.gui.main_window import MainWindow
 
 
 class GuiQueueManager:
     """Manages the download queue GUI and logic."""
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: "MainWindow") -> None:
         """Initialize the queue manager."""
-        self.main_window: MainWindow = main_window
+        self.main_window: "MainWindow" = main_window
         self.settings: Settings = main_window.settings
+        self._is_downloading: bool = False
+        self._lock = threading.Lock()
 
-    def init_ui(self):
+    def init_ui(self) -> None:
         """Initialize UI elements related to the queue."""
         self._init_tree_queue(self.main_window.tr_queue_download)
         self.pb_queue_download_run()
 
-    def connect_signals(self):
+    def connect_signals(self) -> None:
         """Connect signals for queue-related widgets."""
         self.main_window.pb_queue_download_clear_all.clicked.connect(self.on_queue_download_clear_all)
         self.main_window.pb_queue_download_clear_finished.clicked.connect(self.on_queue_download_clear_finished)
@@ -45,6 +46,7 @@ class GuiQueueManager:
         self.main_window.pb_queue_download_toggle.clicked.connect(self.on_pb_queue_download_toggle)
         self.main_window.tr_queue_download.itemClicked.connect(self.on_queue_download_item_clicked)
         self.main_window.tr_queue_download.customContextMenuRequested.connect(self.menu_context_queue_download)
+        
         self.main_window.s_queue_download_item_downloading.connect(self.on_queue_download_item_downloading)
         self.main_window.s_queue_download_item_finished.connect(self.on_queue_download_item_finished)
         self.main_window.s_queue_download_item_failed.connect(self.on_queue_download_item_failed)
@@ -56,20 +58,24 @@ class GuiQueueManager:
         tree.setColumnWidth(2, 200)
         header = tree.header()
         if hasattr(header, "setSectionResizeMode"):
-            header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeToContents)
-        tree.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+            header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        tree.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
 
     def menu_context_queue_download(self, point: QtCore.QPoint) -> None:
         """Show context menu for download queue."""
         item = self.main_window.tr_queue_download.itemAt(point)
         if not item:
             return
+        
         menu = QtWidgets.QMenu()
         status = item.text(0)
+        
         if status == QueueDownloadStatus.Waiting:
             menu.addAction("🗑️ Remove from Queue", lambda: self.on_queue_download_remove_item(item))
+            
         if menu.isEmpty():
             return
+            
         menu.exec(self.main_window.tr_queue_download.mapToGlobal(point))
 
     def on_queue_download_remove_item(self, item: QtWidgets.QTreeWidgetItem) -> None:
@@ -90,15 +96,11 @@ class GuiQueueManager:
         self.on_clear_queue_download(f"[{QueueDownloadStatus.Finished}]")
 
     def on_clear_queue_download(self, regex: str) -> None:
-        """Clear items from the download queue matching the given regex.
-
-        Args:
-            regex (str): Regular expression to match items.
-        """
-        items: list[QtWidgets.QTreeWidgetItem | None] = self.main_window.tr_queue_download.findItems(
+        """Clear items from the download queue matching the given regex."""
+        items: list[QtWidgets.QTreeWidgetItem] = self.main_window.tr_queue_download.findItems(
             regex, QtCore.Qt.MatchFlag.MatchRegularExpression, column=0
         )
-
+        
         for item in items:
             self.main_window.tr_queue_download.takeTopLevelItem(
                 self.main_window.tr_queue_download.indexOfTopLevelItem(item)
@@ -106,27 +108,24 @@ class GuiQueueManager:
 
     def on_queue_download_remove(self) -> None:
         """Remove selected items from the download queue."""
-        items: list[QtWidgets.QTreeWidgetItem | None] = self.main_window.tr_queue_download.selectedItems()
+        items: list[QtWidgets.QTreeWidgetItem] = self.main_window.tr_queue_download.selectedItems()
 
-        if len(items) == 0:
+        if not items:
             logger_gui.error("Please select an item from the queue first.")
-        else:
-            for item in items:
-                status: str = item.text(0)
+            return
 
-                if status != QueueDownloadStatus.Downloading:
-                    self.main_window.tr_queue_download.takeTopLevelItem(
-                        self.main_window.tr_queue_download.indexOfTopLevelItem(item)
-                    )
-                else:
-                    logger_gui.info("Cannot remove a currently downloading item from queue.")
+        for item in items:
+            status: str = item.text(0)
+            if status != QueueDownloadStatus.Downloading:
+                self.main_window.tr_queue_download.takeTopLevelItem(
+                    self.main_window.tr_queue_download.indexOfTopLevelItem(item)
+                )
+            else:
+                logger_gui.info("Cannot remove a currently downloading item from queue.")
 
     def on_pb_queue_download_toggle(self) -> None:
-        """Toggle download status (pause / resume) accordingly.
-
-        :return: None
-        """
-        handling_app: HandlingApp = HandlingApp()
+        """Toggle download status (pause / resume) accordingly."""
+        handling_app = HandlingApp()
 
         if handling_app.event_run.is_set():
             self.pb_queue_download_pause()
@@ -135,18 +134,18 @@ class GuiQueueManager:
 
     def pb_queue_download_run(self) -> None:
         """Start the download queue and update the button state."""
-        handling_app: HandlingApp = HandlingApp()
-
+        handling_app = HandlingApp()
         handling_app.event_run.set()
 
         icon = QtGui.QIcon(QtGui.QIcon.fromTheme(QtGui.QIcon.ThemeIcon.MediaPlaybackPause))
         self.main_window.pb_queue_download_toggle.setIcon(icon)
         self.main_window.pb_queue_download_toggle.setStyleSheet("background-color: #e0a800; color: #212529")
+        
+        self._process_next_item()
 
     def pb_queue_download_pause(self) -> None:
         """Pause the download queue and update the button state."""
-        handling_app: HandlingApp = HandlingApp()
-
+        handling_app = HandlingApp()
         handling_app.event_run.clear()
 
         icon = QtGui.QIcon(QtGui.QIcon.fromTheme(QtGui.QIcon.ThemeIcon.MediaPlaybackStart))
@@ -163,31 +162,68 @@ class GuiQueueManager:
         child.setText(4, str(queue_dl_item.quality_audio))
         child.setText(5, str(queue_dl_item.quality_video))
         self.main_window.tr_queue_download.addTopLevelItem(child)
+        
+        self._process_next_item()
 
     def watcher_queue_download(self) -> None:
-        """Monitor the download queue and process items as they become available."""
-        handling_app: HandlingApp = HandlingApp()
-        while not handling_app.event_abort.is_set():
+        """Monitor the download queue and process items as they become available.
+        
+        Note: The original implementation used a blocking while loop, which is unsafe
+        for GUI operations. This method is now a no-op, replaced by event-driven
+        processing in `_process_next_item`.
+        """
+        pass
+
+    def _process_next_item(self) -> None:
+        """Safely find and process the next item in the queue from the GUI thread."""
+        with self._lock:
+            if self._is_downloading:
+                return
+
+            handling_app = HandlingApp()
+            if not handling_app.event_run.is_set() or handling_app.event_abort.is_set():
+                return
+
             items = self.main_window.tr_queue_download.findItems(
                 QueueDownloadStatus.Waiting, QtCore.Qt.MatchFlag.MatchExactly, column=0
             )
-            if items:
-                item = items[0]
-                media = get_queue_download_media(item)
-                quality_audio = get_queue_download_quality_audio(item)
-                quality_video = get_queue_download_quality_video(item)
-                try:
-                    self.main_window.s_queue_download_item_downloading.emit(item)
-                    result = self.on_queue_download(media, quality_audio=quality_audio, quality_video=quality_video)
-                    if result == QueueDownloadStatus.Finished:
-                        self.main_window.s_queue_download_item_finished.emit(item)
-                    elif result == QueueDownloadStatus.Skipped:
-                        self.main_window.s_queue_download_item_skipped.emit(item)
-                except Exception as e:
-                    logger_gui.error(e)
-                    self.main_window.s_queue_download_item_failed.emit(item)
+            
+            if not items:
+                return
+                
+            item = items[0]
+            self._is_downloading = True
+
+        media = get_queue_download_media(item)
+        quality_audio = get_queue_download_quality_audio(item)
+        quality_video = get_queue_download_quality_video(item)
+
+        self.main_window.s_queue_download_item_downloading.emit(item)
+        
+        self.main_window.thread_it(
+            self._download_worker, item, media, quality_audio, quality_video
+        )
+
+    def _download_worker(
+        self, 
+        item: QtWidgets.QTreeWidgetItem, 
+        media: Track | Album | Playlist | Video | Mix | Artist, 
+        quality_audio: Quality | None, 
+        quality_video: QualityVideo | None
+    ) -> None:
+        """Background worker method to process a download and emit results."""
+        try:
+            result = self.on_queue_download(media, quality_audio=quality_audio, quality_video=quality_video)
+            
+            if result == QueueDownloadStatus.Finished:
+                self.main_window.s_queue_download_item_finished.emit(item)
+            elif result == QueueDownloadStatus.Skipped:
+                self.main_window.s_queue_download_item_skipped.emit(item)
             else:
-                time.sleep(2)
+                self.main_window.s_queue_download_item_failed.emit(item)
+        except Exception as e:
+            logger_gui.error(f"Download failed: {e}", exc_info=True)
+            self.main_window.s_queue_download_item_failed.emit(item)
 
     def on_queue_download_item_downloading(self, item: QtWidgets.QTreeWidgetItem) -> None:
         """Update the status of a queue download item to 'Downloading'."""
@@ -196,14 +232,23 @@ class GuiQueueManager:
     def on_queue_download_item_finished(self, item: QtWidgets.QTreeWidgetItem) -> None:
         """Update the status of a queue download item to 'Finished'."""
         self.queue_download_item_status(item, QueueDownloadStatus.Finished)
+        self._on_item_processed()
 
     def on_queue_download_item_failed(self, item: QtWidgets.QTreeWidgetItem) -> None:
         """Update the status of a queue download item to 'Failed'."""
         self.queue_download_item_status(item, QueueDownloadStatus.Failed)
+        self._on_item_processed()
 
     def on_queue_download_item_skipped(self, item: QtWidgets.QTreeWidgetItem) -> None:
         """Update the status of a queue download item to 'Skipped'."""
         self.queue_download_item_status(item, QueueDownloadStatus.Skipped)
+        self._on_item_processed()
+        
+    def _on_item_processed(self) -> None:
+        """Reset downloading state and trigger the next item."""
+        with self._lock:
+            self._is_downloading = False
+        self._process_next_item()
 
     def queue_download_item_status(self, item: QtWidgets.QTreeWidgetItem, status: str) -> None:
         """Set the status text of a queue download item."""
@@ -217,9 +262,15 @@ class GuiQueueManager:
     ) -> QueueDownloadStatus:
         """Download the specified media item(s) and return the result status."""
         items_media = items_results_all(self.main_window.tidal.session, media) if isinstance(media, Artist) else [media]
-        download_delay = bool(isinstance(media, Track | Video) and self.settings.data.download_delay)
+        download_delay = bool(isinstance(media, (Track, Video)) and self.settings.data.download_delay)
+        
         result = QueueDownloadStatus.Failed
+        handling_app = HandlingApp()
+        
         for item_media in items_media:
+            if handling_app.event_abort.is_set():
+                break
+                
             result = self.download(
                 item_media,
                 self.main_window.dl,
@@ -227,6 +278,7 @@ class GuiQueueManager:
                 quality_audio=quality_audio,
                 quality_video=quality_video,
             )
+                
         return result
 
     def download(
@@ -240,62 +292,78 @@ class GuiQueueManager:
         """Download a media item and return the result status."""
         self.main_window.s_pb_reset.emit()
         self.main_window.s_statusbar_message.emit(StatusbarMessage(message="Download started..."))
+        
         file_template = get_format_template(media, self.settings)
-        result_dl, path_file = False, None
-        if isinstance(media, Track | Video):
-            result_dl, path_file = dl.item(
-                media=media,
-                file_template=file_template,
-                download_delay=delay_track,
-                quality_audio=quality_audio,
-                quality_video=quality_video,
-            )
-        elif isinstance(media, Album | Playlist | Mix):
-            dl.items(
-                media=media,
-                file_template=file_template,
-                video_download=self.settings.data.video_download,
-                download_delay=self.settings.data.download_delay,
-                quality_audio=quality_audio,
-                quality_video=quality_video,
-            )
-            result_dl, path_file = True, "dummy"
+        result_dl = False
+        path_file = None
+        
+        match media:
+            case Track() | Video():
+                result_dl, path_file = dl.item(
+                    media=media,
+                    file_template=file_template,
+                    download_delay=delay_track,
+                    quality_audio=quality_audio,
+                    quality_video=quality_video,
+                )
+            case Album() | Playlist() | Mix():
+                dl.items(
+                    media=media,
+                    file_template=file_template,
+                    video_download=self.settings.data.video_download,
+                    download_delay=self.settings.data.download_delay,
+                    quality_audio=quality_audio,
+                    quality_video=quality_video,
+                )
+                result_dl, path_file = True, "dummy"
+            case _:
+                logger_gui.warning(f"Unsupported media type for download: {type(media)}")
+
         self.main_window.s_statusbar_message.emit(StatusbarMessage(message="Download finished.", timeout=2000))
+        
         if result_dl and path_file:
             return QueueDownloadStatus.Finished
         if not result_dl and path_file:
             return QueueDownloadStatus.Skipped
+            
         return QueueDownloadStatus.Failed
 
     def on_queue_download_item_clicked(self, item: QtWidgets.QTreeWidgetItem) -> None:
         """Handle the event when a queue download item is clicked."""
         media = get_queue_download_media(item)
-        self.main_window.info_tab_widget.update_on_selection(media)
-        self.main_window.thread_it(self.main_window.cover_manager.load_cover, media)
+        if media:
+            self.main_window.info_tab_widget.update_on_selection(media)
+            self.main_window.thread_it(self.main_window.cover_manager.load_cover, media)
 
     def media_to_queue_download_model(
         self, media: Artist | Track | Video | Album | Playlist | Mix
     ) -> QueueDownloadItem | None:
         """Convert a media object to a QueueDownloadItem for the download queue."""
-        if hasattr(media, "available") and media.available is False:
+        if getattr(media, "available", True) is False:
             return None
-        explicit = " 🅴" if isinstance(media, Track | Video | Album) and media.explicit else ""
+            
+        explicit = " 🅴" if isinstance(media, (Track, Video, Album)) and getattr(media, "explicit", False) else ""
         name = ""
-        if isinstance(media, Track | Video):
-            name = f"{name_builder_artist(media)} - {name_builder_title(media)}{explicit}"
-        elif isinstance(media, Playlist | Artist):
-            name = media.name
-        elif isinstance(media, Album):
-            name = f"{name_builder_artist(media)} - {media.name}{explicit}"
-        elif isinstance(media, Mix):
-            name = media.title
+        
+        match media:
+            case Track() | Video():
+                name = f"{name_builder_artist(media)} - {name_builder_title(media)}{explicit}"
+            case Playlist() | Artist():
+                name = media.name
+            case Album():
+                name = f"{name_builder_artist(media)} - {media.name}{explicit}"
+            case Mix():
+                name = media.title
+            case _:
+                return None
 
         quality_audio = self.settings.data.quality_audio
-        if isinstance(media, Track | Album):
+        
+        if isinstance(media, (Track, Album)):
             quality_highest = quality_audio_highest(media)
             if (
                 self.settings.data.quality_audio == quality_highest
-                or self.settings.data.quality_audio == Quality.hi_res_lossless
+                or self.settings.data.quality_audio == getattr(Quality, "hi_res_lossless", None)
             ):
                 quality_audio = quality_highest
 
@@ -308,4 +376,5 @@ class GuiQueueManager:
                 status=QueueDownloadStatus.Waiting,
                 obj=media,
             )
+            
         return None

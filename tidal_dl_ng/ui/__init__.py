@@ -17,21 +17,21 @@ _ui_mod: ModuleType = importlib.import_module("tidal_dl_ng.ui.dialog_playlist_ma
 try:
     from tidal_dl_ng.gui.dialog_playlist_manager import PlaylistManagerDialog as _ImplDialog
 except Exception:
-    _ImplDialog = None  # type: ignore[assignment]
+    _ImplDialog = None
 
 if _ImplDialog is not None:
     _ui_mod.PlaylistManagerDialog = _ImplDialog
 
 # Re-export for convenience when importing from the package
 if _ImplDialog is not None:
-    PlaylistManagerDialog = _ImplDialog  # type: ignore[assignment]
+    PlaylistManagerDialog = _ImplDialog
 
 try:
     from tidal_dl_ng.ui.dialog_playlist_manager import Ui_DialogPlaylistManager as _UiClass
 except Exception:
-    _UiClass = None  # type: ignore[assignment]
+    _UiClass = None
 
 if _UiClass is not None:
-    Ui_DialogPlaylistManager = _UiClass  # type: ignore[assignment]
+    Ui_DialogPlaylistManager = _UiClass
 
 __all__ = [name for name in ("PlaylistManagerDialog", "Ui_DialogPlaylistManager") if name in globals()]

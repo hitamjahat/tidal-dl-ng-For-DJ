@@ -29,6 +29,27 @@ from tidal_dl_ng.logger import logger_gui
 from tidal_dl_ng.ui.spinner import QtWaitingSpinner
 
 
+class PlaylistFetchError(RequestException):
+    """Exception raised when playlist fetching fails."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+    @classmethod
+    def user_playlists_failed(cls, error: Exception) -> PlaylistFetchError:
+        """Create error for failed user playlists fetch."""
+        return cls(f"Failed to fetch user playlists: {error}")
+
+    @classmethod
+    def playlist_items_failed(
+        cls, playlist_uuid: str, error: Exception
+    ) -> PlaylistFetchError:
+        """Create error for failed playlist items fetch."""
+        return cls(
+            f"Failed to fetch items for playlist {playlist_uuid}: {error}"
+        )
+
+
 class PlaylistCellState(StrEnum):
     """Enumeration of possible visual states for the playlist column cell."""
 
@@ -439,9 +460,7 @@ class PlaylistContextLoader(QtCore.QRunnable):
                 )
 
         except Exception as e:
-            raise RequestException(
-                f"Failed to fetch user playlists: {e}"
-            ) from e  # noqa: TRY003
+            raise PlaylistFetchError.user_playlists_failed(e) from e
         else:
             return playlists_data_api
 
@@ -629,9 +648,9 @@ class PlaylistContextLoader(QtCore.QRunnable):
             logger_gui.debug(
                 f"Unexpected error fetching items for {playlist_uuid}: {e}"
             )
-            raise RequestException(
-                f"Failed to fetch items for playlist {playlist_uuid}: {e}"
-            ) from e  # noqa: TRY003
+            raise PlaylistFetchError.playlist_items_failed(
+                playlist_uuid, e
+            ) from e
 
     def request_abort(self) -> None:
         """Request graceful abortion of the loader.

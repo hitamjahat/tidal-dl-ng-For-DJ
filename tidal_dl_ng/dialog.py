@@ -1,12 +1,14 @@
+"""Dialog windows for the application."""
+
 import datetime
-import os.path
+import os
 import shutil
 import webbrowser
-from enum import Enum, StrEnum
+from enum import Enum
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
-from tidalapi import Quality as QualityAudio
+from tidalapi.media import Quality as QualityAudio
 
 from tidal_dl_ng import __version__
 from tidal_dl_ng.config import Settings
@@ -25,8 +27,13 @@ class DialogVersion(QtWidgets.QDialog):
     ui: Ui_DialogVersion
 
     def __init__(
-        self, parent=None, update_check: bool = False, update_available: bool = False, update_info: ReleaseLatest = None
-    ):
+        self,
+        parent: QtWidgets.QWidget | None = None,
+        update_check: bool = False,
+        update_available: bool = False,
+        update_info: ReleaseLatest | None = None,
+    ) -> None:
+        """Initialize the version dialog."""
         super().__init__(parent)
 
         # Create an instance of the GUI
@@ -46,11 +53,17 @@ class DialogVersion(QtWidgets.QDialog):
         # Show
         self.exec()
 
-    def update_info(self, update_available: bool, update_info: ReleaseLatest):
-        if not update_available and update_info.version == "v0.0.0":
+    def update_info(
+        self, update_available: bool, update_info: ReleaseLatest | None
+    ) -> None:
+        """Update the dialog with the latest release info."""
+        if not update_available and (
+            update_info is None or update_info.version == "v0.0.0"
+        ):
             self.update_info_hide()
             self.ui.l_error_details.setText(
-                "Cannot retrieve update information. Maybe something is wrong with your internet connection."
+                "Cannot retrieve update information. "
+                "Maybe something is wrong with your internet connection."
             )
         else:
             self.error_hide()
@@ -58,38 +71,54 @@ class DialogVersion(QtWidgets.QDialog):
             if not update_available:
                 self.ui.l_h_version_new.setText("Latest available version:")
                 self.changelog_hide()
-            else:
+            elif update_info is not None:
                 self.ui.l_changelog_details.setText(update_info.release_info)
-                self.ui.pb_download.clicked.connect(lambda: webbrowser.open(update_info.url))
 
-            self.ui.l_version_new.setText(update_info.version)
+                def _open_url(*_args: object) -> bool:
+                    return webbrowser.open(update_info.url)
 
-    def error_hide(self):
+                # pylint: disable-next=no-member
+                self.ui.pb_download.clicked.connect(_open_url)
+
+            if update_info is not None:
+                self.ui.l_version_new.setText(update_info.version)
+
+    def error_hide(self) -> None:
+        """Hide error elements."""
         self.ui.l_error.setHidden(True)
         self.ui.l_error_details.setHidden(True)
 
-    def update_info_hide(self):
+    def update_info_hide(self) -> None:
+        """Hide update info elements."""
         self.ui.l_h_version_new.setHidden(True)
         self.ui.l_version_new.setHidden(True)
         self.changelog_hide()
 
-    def changelog_hide(self):
+    def changelog_hide(self) -> None:
+        """Hide changelog elements."""
         self.ui.l_changelog.setHidden(True)
         self.ui.l_changelog_details.setHidden(True)
         self.ui.pb_download.setHidden(True)
 
 
 class DialogLogin(QtWidgets.QDialog):
-    """Version dialog."""
+    """Login dialog."""
 
     ui: Ui_DialogLogin
     url_redirect: str
 
-    def __init__(self, url_login: str, hint: str, expires_in: int, parent=None):
+    def __init__(
+        self,
+        url_login: str,
+        hint: str,
+        expires_in: int,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        """Initialize the login dialog."""
         super().__init__(parent)
 
-        datetime_current: datetime.datetime = datetime.datetime.now()
-        datetime_expires: datetime.datetime = datetime_current + datetime.timedelta(0, expires_in)
+        datetime_current = datetime.datetime.now(datetime.UTC)
+        datetime_expires = datetime_current + datetime.timedelta(0, expires_in)
 
         # Create an instance of the GUI
         self.ui = Ui_DialogLogin()
@@ -97,13 +126,18 @@ class DialogLogin(QtWidgets.QDialog):
         # Run the .setupUi() method to show the GUI
         self.ui.setupUi(self)
         # Set data.
-        self.ui.tb_url_login.setText(f'<a href="https://{url_login}">https://{url_login}</a>')
+        self.ui.tb_url_login.setText(
+            f'<a href="https://{url_login}">https://{url_login}</a>'
+        )
         self.ui.l_hint.setText(hint)
-        self.ui.l_expires_date_time.setText(datetime_expires.strftime("%Y-%m-%d %H:%M"))
+        self.ui.l_expires_date_time.setText(
+            datetime_expires.strftime("%Y-%m-%d %H:%M")
+        )
         # Show
         self.return_code = self.exec()
 
 
+# pylint: disable=too-many-instance-attributes
 class DialogPreferences(QtWidgets.QDialog):
     """Preferences dialog."""
 
@@ -113,10 +147,10 @@ class DialogPreferences(QtWidgets.QDialog):
     s_settings_save: QtCore.Signal
     icon: QtGui.QIcon
     help_settings: HelpSettings
-    parameters_checkboxes: [str]
-    parameters_combo: [(str, StrEnum)]
-    parameters_line_edit: [str]
-    parameters_spin_box: [str]
+    parameters_checkboxes: list[str]
+    parameters_combo: list[tuple[str, type[Enum]]]
+    parameters_line_edit: list[str]
+    parameters_spin_box: list[str]
     prefix_checkbox: str = "cb_"
     prefix_label: str = "l_"
     prefix_icon: str = "icon_"
@@ -124,14 +158,22 @@ class DialogPreferences(QtWidgets.QDialog):
     prefix_combo: str = "c_"
     prefix_spin_box: str = "sb_"
 
-    def __init__(self, settings: Settings, settings_save: QtCore.Signal, parent=None):
+    def __init__(
+        self,
+        settings: Settings,
+        settings_save: QtCore.Signal,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        """Initialize the preferences dialog."""
         super().__init__(parent)
 
         self.settings = settings
         self.data = settings.data
         self.s_settings_save = settings_save
         self.help_settings = HelpSettings()
-        pixmapi: QtWidgets.QStyle.StandardPixmap = QtWidgets.QStyle.SP_MessageBoxQuestion
+        pixmapi: QtWidgets.QStyle.StandardPixmap = (
+            QtWidgets.QStyle.StandardPixmap.SP_MessageBoxQuestion
+        )
         self.icon = self.style().standardIcon(pixmapi)
 
         self._init_checkboxes()
@@ -154,7 +196,8 @@ class DialogPreferences(QtWidgets.QDialog):
 
         self.exec()
 
-    def _init_line_edit(self):
+    def _init_line_edit(self) -> None:
+        """Initialize line edit parameters."""
         self.parameters_line_edit = [
             "download_base_path",
             "format_album",
@@ -169,17 +212,23 @@ class DialogPreferences(QtWidgets.QDialog):
             "filename_delimiter_album_artist",
         ]
 
-    def _init_spin_box(self):
-        self.parameters_spin_box = ["album_track_num_pad_min", "downloads_concurrent_max"]
+    def _init_spin_box(self) -> None:
+        """Initialize spin box parameters."""
+        self.parameters_spin_box = [
+            "album_track_num_pad_min",
+            "downloads_concurrent_max",
+        ]
 
-    def _init_comboboxes(self):
+    def _init_comboboxes(self) -> None:
+        """Initialize combobox parameters."""
         self.parameters_combo = [
             ("quality_audio", QualityAudio),
             ("quality_video", QualityVideo),
             ("metadata_cover_dimension", CoverDimensions),
         ]
 
-    def _init_checkboxes(self):
+    def _init_checkboxes(self) -> None:
+        """Initialize checkbox parameters."""
         self.parameters_checkboxes = [
             "lyrics_embed",
             "lyrics_file",
@@ -197,7 +246,7 @@ class DialogPreferences(QtWidgets.QDialog):
             "playlist_create",
         ]
 
-    def _init_categories(self):
+    def _init_categories(self) -> None:
         """Initialize the categories list and connect to page switching."""
         # Add categories to the list
         self.ui.lw_categories.addItem("Flags")
@@ -207,25 +256,42 @@ class DialogPreferences(QtWidgets.QDialog):
         self.ui.lw_categories.addItem("Delimiters")
 
         # Connect category selection to page switching before setting default
-        self.ui.lw_categories.currentRowChanged.connect(self._on_category_changed)
+        # pylint: disable-next=no-member
+        self.ui.lw_categories.currentRowChanged.connect(
+            self._on_category_changed
+        )
 
         # Set the first category as selected and force corresponding page
         self.ui.lw_categories.setCurrentRow(0)
         self._on_category_changed(0)
 
         # Add keyboard navigation for convenience
-        shortcut_next = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key.Key_Tab), self)
-        shortcut_prev = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key.Key_Backtab), self)
-        shortcut_next.activated.connect(lambda: self._navigate_categories(1) if self.ui.lw_categories.count() else None)
-        shortcut_prev.activated.connect(
-            lambda: self._navigate_categories(-1) if self.ui.lw_categories.count() else None
+        shortcut_next = QtGui.QShortcut(
+            QtGui.QKeySequence(QtCore.Qt.Key.Key_Tab), self
+        )
+        shortcut_prev = QtGui.QShortcut(
+            QtGui.QKeySequence(QtCore.Qt.Key.Key_Backtab), self
         )
 
-    def _on_category_changed(self, index: int):
+        def _next_cat(*_args: object) -> None:
+            if self.ui.lw_categories.count():
+                self._navigate_categories(1)
+
+        def _prev_cat(*_args: object) -> None:
+            if self.ui.lw_categories.count():
+                self._navigate_categories(-1)
+
+        # pylint: disable-next=no-member
+        shortcut_next.activated.connect(_next_cat)
+        # pylint: disable-next=no-member
+        shortcut_prev.activated.connect(_prev_cat)
+
+    def _on_category_changed(self, index: int) -> None:
         """Handle category change to switch pages."""
         self.ui.sw_categories.setCurrentIndex(index)
 
-    def gui_populate(self):
+    def gui_populate(self) -> None:
+        """Populate the GUI with current settings."""
         self.populate_checkboxes()
         self.populate_combo()
         self.populate_line_edit()
@@ -234,68 +300,106 @@ class DialogPreferences(QtWidgets.QDialog):
     def dialog_chose_file(
         self,
         obj_line_edit: QtWidgets.QLineEdit,
-        file_mode: QtWidgets.QFileDialog | QtWidgets.QFileDialog.FileMode = QtWidgets.QFileDialog.Directory,
-        path_default: str = None,
-    ):
+        file_mode: QtWidgets.QFileDialog.FileMode = (
+            QtWidgets.QFileDialog.FileMode.Directory
+        ),
+        path_default: str | None = None,
+    ) -> None:
+        """Open a file dialog to chose a path."""
         # If a path is set, use it otherwise the users home directory.
-        path_settings: str = os.path.expanduser(obj_line_edit.text()) if obj_line_edit.text() else ""
-        # Check if obj_line_edit is empty but path_default can be used instead
-        path_settings = (
-            path_settings if path_settings else os.path.expanduser(path_default) if path_default else path_settings
+        path_settings: str = (
+            str(Path(obj_line_edit.text()).expanduser())
+            if obj_line_edit.text()
+            else ""
         )
-        dir_current: str = path_settings if path_settings and os.path.exists(path_settings) else str(Path.home())
-        dialog: QtWidgets.QFileDialog = QtWidgets.QFileDialog()
+        # Check if obj_line_edit is empty but path_default can be used instead
+        if not path_settings and path_default:
+            path_settings = str(Path(path_default).expanduser())
+
+        dir_current: str = (
+            path_settings
+            if path_settings and Path(path_settings).exists()
+            else str(Path.home())
+        )
+        dialog = QtWidgets.QFileDialog()
 
         # Set to directory mode only but show files.
         dialog.setFileMode(file_mode)
-        dialog.setViewMode(QtWidgets.QFileDialog.Detail)
-        dialog.setOption(QtWidgets.QFileDialog.ShowDirsOnly, False)
-        dialog.setOption(QtWidgets.QFileDialog.DontResolveSymlinks, True)
+        dialog.setViewMode(QtWidgets.QFileDialog.ViewMode.Detail)
+        dialog.setOption(QtWidgets.QFileDialog.Option.ShowDirsOnly, on=False)
+        dialog.setOption(
+            QtWidgets.QFileDialog.Option.DontResolveSymlinks, on=True
+        )
 
-        # There is a bug in the PyQt implementation, which hides files in Directory mode.
-        # Thus, we need to use the PyQt dialog instead of the native dialog.
-        if os.name == "nt" and file_mode == QtWidgets.QFileDialog.Directory:
-            dialog.setOption(QtWidgets.QFileDialog.DontUseNativeDialog, True)
+        # There is a bug in the PyQt implementation, which hides files
+        # in Directory mode. Thus, we need to use the PyQt dialog instead.
+        if (
+            os.name == "nt"
+            and file_mode == QtWidgets.QFileDialog.FileMode.Directory
+        ):
+            dialog.setOption(
+                QtWidgets.QFileDialog.Option.DontUseNativeDialog, on=True
+            )
 
         dialog.setDirectory(dir_current)
 
         # Execute dialog and set path if something is chosen.
         if dialog.exec():
             dir_name: str = dialog.selectedFiles()[0]
-            path: Path = Path(dir_name)
+            path = Path(dir_name)
             obj_line_edit.setText(str(path))
 
-    def populate_line_edit(self):
+    def populate_line_edit(self) -> None:
+        """Populate line edits."""
         for pn in self.parameters_line_edit:
-            label_icon: QtWidgets.QLabel = getattr(self.ui, self.prefix_label + self.prefix_icon + pn)
+            label_icon: QtWidgets.QLabel = getattr(
+                self.ui, self.prefix_label + self.prefix_icon + pn
+            )
             label: QtWidgets.QLabel = getattr(self.ui, self.prefix_label + pn)
-            line_edit: QtWidgets.QLineEdit = getattr(self.ui, self.prefix_line_edit + pn)
+            line_edit: QtWidgets.QLineEdit = getattr(
+                self.ui, self.prefix_line_edit + pn
+            )
 
-            label_icon.setPixmap(QtGui.QPixmap(self.icon.pixmap(QtCore.QSize(16, 16))))
+            label_icon.setPixmap(
+                QtGui.QPixmap(self.icon.pixmap(QtCore.QSize(16, 16)))
+            )
             label_icon.setToolTip(getattr(self.help_settings, pn))
             label.setText(pn)
             line_edit.setText(str(getattr(self.data, pn)))
 
         # Base Path File Dialog
-        self.ui.pb_download_base_path.clicked.connect(lambda x: self.dialog_chose_file(self.ui.le_download_base_path))
-        self.ui.pb_path_binary_ffmpeg.clicked.connect(
-            lambda x: self.dialog_chose_file(
+        def _open_base(*_args: object) -> None:
+            self.dialog_chose_file(self.ui.le_download_base_path)
+
+        def _open_ffmpeg(*_args: object) -> None:
+            self.dialog_chose_file(
                 self.ui.le_path_binary_ffmpeg,
                 file_mode=QtWidgets.QFileDialog.FileMode.ExistingFiles,
                 path_default=shutil.which("ffmpeg"),
             )
-        )
 
-    def populate_combo(self):
+        # pylint: disable-next=no-member
+        self.ui.pb_download_base_path.clicked.connect(_open_base)
+        # pylint: disable-next=no-member
+        self.ui.pb_path_binary_ffmpeg.clicked.connect(_open_ffmpeg)
+
+    def populate_combo(self) -> None:
+        """Populate comboboxes."""
         for p in self.parameters_combo:
             pn: str = p[0]
-            values: Enum = p[1]
-            label_icon: QtWidgets.QLabel = getattr(self.ui, self.prefix_label + self.prefix_icon + pn)
+            values: type[Enum] = p[1]
+            label_icon: QtWidgets.QLabel = getattr(
+                self.ui, self.prefix_label + self.prefix_icon + pn
+            )
             label: QtWidgets.QLabel = getattr(self.ui, self.prefix_label + pn)
-            combo: QtWidgets.QComboBox = getattr(self.ui, self.prefix_combo + pn)
+            combo: QtWidgets.QComboBox = getattr(
+                self.ui, self.prefix_combo + pn
+            )
             setting_current = getattr(self.data, pn)
 
-            label_icon.setPixmap(QtGui.QPixmap(self.icon.pixmap(QtCore.QSize(16, 16))))
+            label_icon.setPixmap(
+                QtGui.QPixmap(self.icon.pixmap(QtCore.QSize(16, 16)))
+            )
             label_icon.setToolTip(getattr(self.help_settings, pn))
             label.setText(pn)
 
@@ -305,43 +409,71 @@ class DialogPreferences(QtWidgets.QDialog):
                 if v == setting_current:
                     combo.setCurrentIndex(index)
 
-    def populate_checkboxes(self):
+    def populate_checkboxes(self) -> None:
+        """Populate checkboxes."""
         for pn in self.parameters_checkboxes:
-            checkbox: QtWidgets.QCheckBox = getattr(self.ui, self.prefix_checkbox + pn)
+            checkbox: QtWidgets.QCheckBox = getattr(
+                self.ui, self.prefix_checkbox + pn
+            )
 
             checkbox.setText(pn)
             checkbox.setToolTip(getattr(self.help_settings, pn))
             checkbox.setIcon(self.icon)
             checkbox.setChecked(getattr(self.data, pn))
 
-    def populate_spin_box(self):
+    def populate_spin_box(self) -> None:
+        """Populate spin boxes."""
         for pn in self.parameters_spin_box:
-            label_icon: QtWidgets.QLabel = getattr(self.ui, self.prefix_label + self.prefix_icon + pn)
+            label_icon: QtWidgets.QLabel = getattr(
+                self.ui, self.prefix_label + self.prefix_icon + pn
+            )
             label: QtWidgets.QLabel = getattr(self.ui, self.prefix_label + pn)
-            spin_box: QtWidgets.QSpinBox = getattr(self.ui, self.prefix_spin_box + pn)
+            spin_box: QtWidgets.QSpinBox = getattr(
+                self.ui, self.prefix_spin_box + pn
+            )
 
-            label_icon.setPixmap(QtGui.QPixmap(self.icon.pixmap(QtCore.QSize(16, 16))))
+            label_icon.setPixmap(
+                QtGui.QPixmap(self.icon.pixmap(QtCore.QSize(16, 16)))
+            )
             label_icon.setToolTip(getattr(self.help_settings, pn))
             label.setText(pn)
             spin_box.setValue(getattr(self.data, pn))
 
-    def accept(self):
+    def accept(self) -> None:
+        """Accept the dialog and save settings."""
         # Get settings.
         self.to_settings()
         self.done(1)
 
-    def to_settings(self):
+    def to_settings(self) -> None:
+        """Save settings to the config."""
         for item in self.parameters_checkboxes:
-            setattr(self.settings.data, item, getattr(self.ui, self.prefix_checkbox + item).isChecked())
+            setattr(
+                self.settings.data,
+                item,
+                getattr(self.ui, self.prefix_checkbox + item).isChecked(),
+            )
 
         for item in self.parameters_line_edit:
-            setattr(self.settings.data, item, getattr(self.ui, self.prefix_line_edit + item).text())
+            setattr(
+                self.settings.data,
+                item,
+                getattr(self.ui, self.prefix_line_edit + item).text(),
+            )
 
         for item in self.parameters_combo:
-            setattr(self.settings.data, item[0], getattr(self.ui, self.prefix_combo + item[0]).currentData())
+            setattr(
+                self.settings.data,
+                item[0],
+                getattr(self.ui, self.prefix_combo + item[0]).currentData(),
+            )
 
         for item in self.parameters_spin_box:
-            setattr(self.settings.data, item, getattr(self.ui, self.prefix_spin_box + item).value())
+            setattr(
+                self.settings.data,
+                item,
+                getattr(self.ui, self.prefix_spin_box + item).value(),
+            )
 
         self.s_settings_save.emit()
 

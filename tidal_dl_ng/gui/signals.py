@@ -3,10 +3,16 @@
 Handles all Qt signal definitions and connections.
 """
 
+from typing import TYPE_CHECKING, Any
+
 from PySide6 import QtCore, QtWidgets
-from tidalapi import Album, Artist, Track, Video
+from tidalapi import Album, Artist, Mix, Playlist, Track, Video
+from tidalapi.playlist import UserPlaylist
 
 from tidal_dl_ng.helper.gui import get_results_media_item
+
+if TYPE_CHECKING:
+    from tidal_dl_ng.config import Settings
 
 
 class SignalsMixin:
@@ -14,13 +20,14 @@ class SignalsMixin:
 
     def _init_signals(self) -> None:
         """Connect signals to their respective slots."""
-        self.pb_download.clicked.connect(lambda: self.thread_it(self.on_download_results))
-        self.pb_download_list.clicked.connect(lambda: self.thread_it(self.playlist_manager.on_download_list_media))
+        # Use generic *args in lambdas to avoid TypeErrors from signals that unexpectedly emit parameters
+        self.pb_download.clicked.connect(lambda *args: self.thread_it(self.on_download_results))
+        self.pb_download_list.clicked.connect(lambda *args: self.thread_it(self.playlist_manager.on_download_list_media))
         self.l_search.returnPressed.connect(
-            lambda: self.search_manager.search_populate_results(self.l_search.text(), self.cb_search_type.currentData())
+            lambda *args: self.search_manager.search_populate_results(self.l_search.text(), self.cb_search_type.currentData())
         )
         self.pb_search.clicked.connect(
-            lambda: self.search_manager.search_populate_results(self.l_search.text(), self.cb_search_type.currentData())
+            lambda *args: self.search_manager.search_populate_results(self.l_search.text(), self.cb_search_type.currentData())
         )
         self.cb_quality_audio.currentIndexChanged.connect(self.on_quality_set_audio)
         self.cb_quality_video.currentIndexChanged.connect(self.on_quality_set_video)
@@ -35,20 +42,24 @@ class SignalsMixin:
         self.s_tr_results_add_top_level_item.connect(self.on_tr_results_add_top_level_item)
         self.s_settings_save.connect(self.on_settings_save)
         self.s_pb_reload_status.connect(self.button_reload_status)
-        self.s_update_check.connect(lambda: self.thread_it(self.on_update_check))
+        self.s_update_check.connect(lambda *args: self.thread_it(self.on_update_check))
         self.s_update_show.connect(self.on_version)
 
         # Menubar
         self.a_exit.triggered.connect(self.close)
-        self.a_version.triggered.connect(self.on_version)
+        
+        # Explicit lambda prevents passing `checked` boolean from QAction into on_version randomly
+        self.a_version.triggered.connect(lambda *args: self.on_version())
         self.a_preferences.triggered.connect(self.on_preferences)
         self.a_logout.triggered.connect(self.on_logout)
-        self.a_updates_check.triggered.connect(lambda: self.on_update_check(False))
+        
+        # Passing False safely
+        self.a_updates_check.triggered.connect(lambda *args: self.on_update_check(False))
 
         # Results
         self.tr_results.expanded.connect(self.on_tr_results_expanded)
         self.tr_results.clicked.connect(self.on_result_item_clicked)
-        self.tr_results.doubleClicked.connect(lambda: self.thread_it(self.on_download_results))
+        self.tr_results.doubleClicked.connect(lambda *args: self.thread_it(self.on_download_results))
 
         # Managers
         self.queue_manager.connect_signals()
@@ -58,28 +69,46 @@ class SignalsMixin:
 
     def on_result_item_clicked(self, index: QtCore.QModelIndex) -> None:
         """Handle the event when a result item is clicked."""
-        media: Track | Video | Album | Artist = get_results_media_item(
+        media: Track | Video | Album | Artist | Mix | Playlist | UserPlaylist | None = get_results_media_item(
             index, self.proxy_tr_results, self.model_tr_results
         )
 
-        self.info_tab_widget.update_on_selection(media)
-        self.thread_it(self.cover_manager.load_cover, media)
+        if media is not None:
+            self.info_tab_widget.update_on_selection(media)
+            self.thread_it(self.cover_manager.load_cover, media)
 
     def on_quality_set_audio(self, index: int) -> None:
         """Set the audio quality for downloads."""
         from tidalapi import Quality
 
-        quality_data = self.cb_quality_audio.itemData(index)
-        self.settings.data.quality_audio = Quality(quality_data)
+        quality_data: Any = self.cb_quality_audio.itemData(index)
+        
+        if isinstance(quality_data, Quality):
+            self.settings.data.quality_audio = quality_data
+        else:
+            try:
+                self.settings.data.quality_audio = Quality(quality_data)
+            except ValueError:
+                pass
+                
         self.settings.save()
-        if self.tidal:
+        if hasattr(self, "tidal") and self.tidal:
             self.tidal.settings_apply()
 
     def on_quality_set_video(self, index: int) -> None:
         """Set the video quality for downloads."""
         from tidal_dl_ng.constants import QualityVideo
 
-        self.settings.data.quality_video = QualityVideo(self.cb_quality_video.itemData(index))
+        quality_data: Any = self.cb_quality_video.itemData(index)
+        
+        if isinstance(quality_data, QualityVideo):
+            self.settings.data.quality_video = quality_data
+        else:
+            try:
+                self.settings.data.quality_video = QualityVideo(quality_data)
+            except ValueError:
+                pass
+                
         self.settings.save()
-        if self.tidal:
+        if hasattr(self, "tidal") and self.tidal:
             self.tidal.settings_apply()
