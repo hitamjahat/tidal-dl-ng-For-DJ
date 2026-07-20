@@ -419,13 +419,19 @@ def _format_ids(
     # Handle album IDs
     if name == "album_id" and isinstance(media, Album | Track):
         album = media if isinstance(media, Album) else media.album
+        if album is None:
+            return None
         return str(album.id)
     # Handle ISRC
     if name == "isrc" and isinstance(media, Track):
         return media.isrc
     if name == "album_artist_id" and isinstance(media, Album):
+        if media.artist is None:
+            return None
         return str(media.artist.id)
     if name == "track_artist_id" and isinstance(media, Track):
+        if media.album is None or media.album.artist is None:
+            return None
         return str(media.album.artist.id)
     return None
 
