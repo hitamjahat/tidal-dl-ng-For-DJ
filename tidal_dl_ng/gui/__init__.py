@@ -1,12 +1,13 @@
 """GUI module for TIDAL Downloader Next Generation.
 
-This module provides the main window and all GUI-related functionality
+This package provides the main window and all GUI-related functionality
 organized into manageable components.
 """
 
-from tidal_dl_ng.gui import activate, main_window
+from tidal_dl_ng.gui.activate import gui_activate
+from tidal_dl_ng.gui.main_window import MainWindow
 
 __all__ = [
-    "activate",
-    "main_window",
+    "MainWindow",
+    "gui_activate",
 ]

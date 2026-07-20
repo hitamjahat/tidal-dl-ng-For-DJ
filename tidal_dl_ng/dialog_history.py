@@ -3,15 +3,14 @@
 Dialog for viewing and managing download history.
 """
 
-import os
-import subprocess
-import sys
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from PySide6 import QtCore, QtWidgets
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 
 from tidal_dl_ng.history import HistoryService
 from tidal_dl_ng.logger import logger_gui
@@ -70,20 +69,20 @@ class DialogHistory(QtWidgets.QDialog):
 
     def _connect_signals(self) -> None:
         """Connect UI signals to handlers."""
-        # pylint: disable-next=no-member
-        self.ui.pb_refresh.clicked.connect(self._load_history)
-        # pylint: disable-next=no-member
-        self.ui.pb_export.clicked.connect(self._on_export)
-        # pylint: disable-next=no-member
-        self.ui.pb_import.clicked.connect(self._on_import)
-        # pylint: disable-next=no-member
-        self.ui.pb_clear_history.clicked.connect(self._on_clear_history)
-        # pylint: disable-next=no-member
-        self.ui.pb_remove_selected.clicked.connect(self._on_remove_selected)
-        # pylint: disable-next=no-member
-        self.ui.pb_close.clicked.connect(self.close)
-        # pylint: disable-next=no-member
-        self.ui.pb_open_folder.clicked.connect(self._on_open_folder)
+        btn_refresh: QtWidgets.QPushButton = vars(self.ui)["pb_refresh"]
+        btn_refresh.clicked.connect(self._load_history)
+        btn_export: QtWidgets.QPushButton = vars(self.ui)["pb_export"]
+        btn_export.clicked.connect(self._on_export)
+        btn_import: QtWidgets.QPushButton = vars(self.ui)["pb_import"]
+        btn_import.clicked.connect(self._on_import)
+        btn_clear: QtWidgets.QPushButton = vars(self.ui)["pb_clear_history"]
+        btn_clear.clicked.connect(self._on_clear_history)
+        btn_remove: QtWidgets.QPushButton = vars(self.ui)["pb_remove_selected"]
+        btn_remove.clicked.connect(self._on_remove_selected)
+        btn_close: QtWidgets.QPushButton = vars(self.ui)["pb_close"]
+        btn_close.clicked.connect(self.close)
+        btn_folder: QtWidgets.QPushButton = vars(self.ui)["pb_open_folder"]
+        btn_folder.clicked.connect(self._on_open_folder)
 
     def _load_history(self) -> None:
         """Load and display the download history."""
@@ -365,23 +364,16 @@ class DialogHistory(QtWidgets.QDialog):
         file_path = Path(self.history_service.get_history_file_path())
         folder_path = file_path.parent
 
-        try:
-            if sys.platform == "win32":
-                os.startfile(folder_path)  # noqa: S606
-            elif sys.platform == "darwin":
-                # Security: folder_path is from config, not user input
-                subprocess.run(  # noqa: S603
-                    ["open", str(folder_path)], check=False
-                )
-            else:
-                # Security: folder_path is from config, not user input
-                subprocess.run(  # noqa: S603
-                    ["xdg-open", str(folder_path)], check=False
-                )
+        opened: bool = QDesktopServices.openUrl(
+            QUrl.fromLocalFile(str(folder_path))
+        )
 
-            logger_gui.info("Opened folder: %s", folder_path)
-        except OSError as e:
+        if not opened:
             QtWidgets.QMessageBox.warning(
-                self, "Cannot Open Folder", f"Failed to open folder:\n{e!s}"
+                self,
+                "Cannot Open Folder",
+                "Failed to open the folder.",
             )
-            logger_gui.error("Failed to open folder: %s", e)
+            logger_gui.error("Failed to open folder: %s", folder_path)
+        else:
+            logger_gui.info("Opened folder: %s", folder_path)

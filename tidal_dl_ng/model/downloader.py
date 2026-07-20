@@ -1,7 +1,13 @@
+"""Download-related data models for tidal-dl-ng.
+
+These dataclasses group the many parameters, runtime handles and
+intermediate results used while downloading tracks, videos, albums,
+playlists and mixes from TIDAL.
+"""
+
 import pathlib
 from dataclasses import dataclass, field
 from threading import Event
-from typing import Any
 
 from requests import HTTPError
 from rich.progress import Progress, TaskID
@@ -9,9 +15,24 @@ from tidalapi.album import Album
 from tidalapi.media import Quality, Stream, StreamManifest, Track, Video
 from tidalapi.mix import Mix
 from tidalapi.playlist import Playlist, UserPlaylist
-from tidal_dl_ng.constants import MediaType, QualityVideo
 
+from tidal_dl_ng.constants import MediaType, QualityVideo
 from tidal_dl_ng.model.gui_data import ProgressBars
+
+
+def _empty_extras() -> dict[str, object]:
+    """Return a fresh, empty extras mapping."""
+    return {}
+
+
+def _empty_urls() -> list[str]:
+    """Return a fresh, empty list of segment URLs."""
+    return []
+
+
+def _zero_task_id() -> TaskID:
+    """Return a fresh, zero-initialised rich progress task id."""
+    return TaskID(0)
 
 
 @dataclass
@@ -48,11 +69,22 @@ class DownloadParams:
 
 @dataclass
 class DownloadSegmentResult:
+    """Outcome of downloading a single stream segment."""
+
     result: bool
+    """Whether the segment downloaded successfully."""
+
     url: str
+    """Source URL the segment was fetched from."""
+
     path_segment: pathlib.Path
+    """Local path the segment was written to."""
+
     id_segment: int
+    """Numeric segment identifier used for tracing."""
+
     error: HTTPError | None = None
+    """Captured HTTP error, if the download failed."""
 
 
 @dataclass
@@ -197,7 +229,7 @@ class TrackExtrasData:
     cover_data: bytes | None = None
     lyrics_synced: str = ""
     lyrics_unsynced: str = ""
-    extras: dict[str, Any] = field(default_factory=dict)
+    extras: dict[str, object] = field(default_factory=_empty_extras)
 
 
 @dataclass
@@ -255,9 +287,9 @@ class SegmentDownloadRequest:
     """
 
     stream_manifest: StreamManifest | None = None
-    urls: list[str] = field(default_factory=list)
+    urls: list[str] = field(default_factory=_empty_urls)
     progress_to_stdout: bool = False
-    p_task: TaskID = TaskID(0)
+    p_task: TaskID = field(default_factory=_zero_task_id)
     block_size: int | None = None
 
 
@@ -294,7 +326,7 @@ class TrackAssets:
     path_lyrics: pathlib.Path | None
     cover_data: bytes | None
     path_cover: pathlib.Path | None
-    extras: dict[str, Any]
+    extras: dict[str, object]
 
 
 @dataclass

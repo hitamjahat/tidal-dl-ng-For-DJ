@@ -6,15 +6,16 @@ import shutil
 import webbrowser
 from enum import Enum
 from pathlib import Path
+from typing import ClassVar
 
 from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6.QtCore import SignalInstance
 from tidalapi.media import Quality as QualityAudio
 
 from tidal_dl_ng import __version__
 from tidal_dl_ng.config import Settings
 from tidal_dl_ng.constants import CoverDimensions, QualityVideo
 from tidal_dl_ng.model.cfg import HelpSettings
-from tidal_dl_ng.model.cfg import Settings as ModelSettings
 from tidal_dl_ng.model.meta import ReleaseLatest
 from tidal_dl_ng.ui.dialog_login import Ui_DialogLogin
 from tidal_dl_ng.ui.dialog_settings import Ui_DialogSettings
@@ -29,6 +30,7 @@ class DialogVersion(QtWidgets.QDialog):
     def __init__(
         self,
         parent: QtWidgets.QWidget | None = None,
+        *,
         update_check: bool = False,
         update_available: bool = False,
         update_info: ReleaseLatest | None = None,
@@ -42,19 +44,24 @@ class DialogVersion(QtWidgets.QDialog):
         # Run the .setupUi() method to show the GUI
         self.ui.setupUi(self)
         # Set the version.
-        self.ui.l_version.setText("v" + __version__)
+        self.ui.l_version.setText(f"v{__version__}")
 
         if not update_check:
             self.update_info_hide()
             self.error_hide()
         else:
-            self.update_info(update_available, update_info)
+            self.update_info(
+                update_available=update_available, update_info=update_info
+            )
 
         # Show
         self.exec()
 
     def update_info(
-        self, update_available: bool, update_info: ReleaseLatest | None
+        self,
+        *,
+        update_available: bool,
+        update_info: ReleaseLatest | None,
     ) -> None:
         """Update the dialog with the latest release info."""
         if not update_available and (
@@ -137,31 +144,66 @@ class DialogLogin(QtWidgets.QDialog):
         self.return_code = self.exec()
 
 
-# pylint: disable=too-many-instance-attributes
 class DialogPreferences(QtWidgets.QDialog):
     """Preferences dialog."""
 
     ui: Ui_DialogSettings
-    settings: Settings
-    data: ModelSettings
-    s_settings_save: QtCore.Signal
-    icon: QtGui.QIcon
-    help_settings: HelpSettings
-    parameters_checkboxes: list[str]
-    parameters_combo: list[tuple[str, type[Enum]]]
-    parameters_line_edit: list[str]
-    parameters_spin_box: list[str]
-    prefix_checkbox: str = "cb_"
-    prefix_label: str = "l_"
-    prefix_icon: str = "icon_"
-    prefix_line_edit: str = "le_"
-    prefix_combo: str = "c_"
-    prefix_spin_box: str = "sb_"
+
+    # Prefix constants for UI widget naming convention
+    PREFIX_CHECKBOX: str = "cb_"
+    PREFIX_LABEL: str = "l_"
+    PREFIX_ICON: str = "icon_"
+    PREFIX_LINE_EDIT: str = "le_"
+    PREFIX_COMBO: str = "c_"
+    PREFIX_SPIN_BOX: str = "sb_"
+
+    # Parameter lists for each widget type
+    PARAMETERS_LINE_EDIT: ClassVar[list[str]] = [
+        "download_base_path",
+        "format_album",
+        "format_playlist",
+        "format_mix",
+        "format_track",
+        "format_video",
+        "path_binary_ffmpeg",
+        "metadata_delimiter_artist",
+        "metadata_delimiter_album_artist",
+        "filename_delimiter_artist",
+        "filename_delimiter_album_artist",
+    ]
+
+    PARAMETERS_SPIN_BOX: ClassVar[list[str]] = [
+        "album_track_num_pad_min",
+        "downloads_concurrent_max",
+    ]
+
+    PARAMETERS_COMBO: ClassVar[list[tuple[str, type[Enum]]]] = [
+        ("quality_audio", QualityAudio),
+        ("quality_video", QualityVideo),
+        ("metadata_cover_dimension", CoverDimensions),
+    ]
+
+    PARAMETERS_CHECKBOXES: ClassVar[list[str]] = [
+        "lyrics_embed",
+        "lyrics_file",
+        "use_primary_album_artist",
+        "video_download",
+        "download_dolby_atmos",
+        "download_delay",
+        "video_convert_mp4",
+        "extract_flac",
+        "metadata_cover_embed",
+        "mark_explicit",
+        "cover_album_file",
+        "skip_existing",
+        "symlink_to_track",
+        "playlist_create",
+    ]
 
     def __init__(
         self,
         settings: Settings,
-        settings_save: QtCore.Signal,
+        settings_save: SignalInstance,
         parent: QtWidgets.QWidget | None = None,
     ) -> None:
         """Initialize the preferences dialog."""
@@ -169,17 +211,12 @@ class DialogPreferences(QtWidgets.QDialog):
 
         self.settings = settings
         self.data = settings.data
-        self.s_settings_save = settings_save
+        self.s_settings_save: SignalInstance = settings_save
         self.help_settings = HelpSettings()
         pixmapi: QtWidgets.QStyle.StandardPixmap = (
             QtWidgets.QStyle.StandardPixmap.SP_MessageBoxQuestion
         )
         self.icon = self.style().standardIcon(pixmapi)
-
-        self._init_checkboxes()
-        self._init_comboboxes()
-        self._init_line_edit()
-        self._init_spin_box()
 
         # Create an instance of the GUI
         self.ui = Ui_DialogSettings()
@@ -195,56 +232,6 @@ class DialogPreferences(QtWidgets.QDialog):
         # Post setup
 
         self.exec()
-
-    def _init_line_edit(self) -> None:
-        """Initialize line edit parameters."""
-        self.parameters_line_edit = [
-            "download_base_path",
-            "format_album",
-            "format_playlist",
-            "format_mix",
-            "format_track",
-            "format_video",
-            "path_binary_ffmpeg",
-            "metadata_delimiter_artist",
-            "metadata_delimiter_album_artist",
-            "filename_delimiter_artist",
-            "filename_delimiter_album_artist",
-        ]
-
-    def _init_spin_box(self) -> None:
-        """Initialize spin box parameters."""
-        self.parameters_spin_box = [
-            "album_track_num_pad_min",
-            "downloads_concurrent_max",
-        ]
-
-    def _init_comboboxes(self) -> None:
-        """Initialize combobox parameters."""
-        self.parameters_combo = [
-            ("quality_audio", QualityAudio),
-            ("quality_video", QualityVideo),
-            ("metadata_cover_dimension", CoverDimensions),
-        ]
-
-    def _init_checkboxes(self) -> None:
-        """Initialize checkbox parameters."""
-        self.parameters_checkboxes = [
-            "lyrics_embed",
-            "lyrics_file",
-            "use_primary_album_artist",
-            "video_download",
-            "download_dolby_atmos",
-            "download_delay",
-            "video_convert_mp4",
-            "extract_flac",
-            "metadata_cover_embed",
-            "mark_explicit",
-            "cover_album_file",
-            "skip_existing",
-            "symlink_to_track",
-            "playlist_create",
-        ]
 
     def _init_categories(self) -> None:
         """Initialize the categories list and connect to page switching."""
@@ -351,13 +338,13 @@ class DialogPreferences(QtWidgets.QDialog):
 
     def populate_line_edit(self) -> None:
         """Populate line edits."""
-        for pn in self.parameters_line_edit:
+        for pn in self.PARAMETERS_LINE_EDIT:
             label_icon: QtWidgets.QLabel = getattr(
-                self.ui, self.prefix_label + self.prefix_icon + pn
+                self.ui, self.PREFIX_LABEL + self.PREFIX_ICON + pn
             )
-            label: QtWidgets.QLabel = getattr(self.ui, self.prefix_label + pn)
+            label: QtWidgets.QLabel = getattr(self.ui, self.PREFIX_LABEL + pn)
             line_edit: QtWidgets.QLineEdit = getattr(
-                self.ui, self.prefix_line_edit + pn
+                self.ui, self.PREFIX_LINE_EDIT + pn
             )
 
             label_icon.setPixmap(
@@ -378,22 +365,26 @@ class DialogPreferences(QtWidgets.QDialog):
                 path_default=shutil.which("ffmpeg"),
             )
 
-        # pylint: disable-next=no-member
-        self.ui.pb_download_base_path.clicked.connect(_open_base)
-        # pylint: disable-next=no-member
-        self.ui.pb_path_binary_ffmpeg.clicked.connect(_open_ffmpeg)
+        btn_base: QtWidgets.QPushButton = vars(self.ui)[
+            "pb_download_base_path"
+        ]
+        btn_base.clicked.connect(_open_base)
+        btn_ffmpeg: QtWidgets.QPushButton = vars(self.ui)[
+            "pb_path_binary_ffmpeg"
+        ]
+        btn_ffmpeg.clicked.connect(_open_ffmpeg)
 
     def populate_combo(self) -> None:
         """Populate comboboxes."""
-        for p in self.parameters_combo:
+        for p in self.PARAMETERS_COMBO:
             pn: str = p[0]
             values: type[Enum] = p[1]
             label_icon: QtWidgets.QLabel = getattr(
-                self.ui, self.prefix_label + self.prefix_icon + pn
+                self.ui, self.PREFIX_LABEL + self.PREFIX_ICON + pn
             )
-            label: QtWidgets.QLabel = getattr(self.ui, self.prefix_label + pn)
+            label: QtWidgets.QLabel = getattr(self.ui, self.PREFIX_LABEL + pn)
             combo: QtWidgets.QComboBox = getattr(
-                self.ui, self.prefix_combo + pn
+                self.ui, self.PREFIX_COMBO + pn
             )
             setting_current = getattr(self.data, pn)
 
@@ -411,9 +402,9 @@ class DialogPreferences(QtWidgets.QDialog):
 
     def populate_checkboxes(self) -> None:
         """Populate checkboxes."""
-        for pn in self.parameters_checkboxes:
+        for pn in self.PARAMETERS_CHECKBOXES:
             checkbox: QtWidgets.QCheckBox = getattr(
-                self.ui, self.prefix_checkbox + pn
+                self.ui, self.PREFIX_CHECKBOX + pn
             )
 
             checkbox.setText(pn)
@@ -423,13 +414,13 @@ class DialogPreferences(QtWidgets.QDialog):
 
     def populate_spin_box(self) -> None:
         """Populate spin boxes."""
-        for pn in self.parameters_spin_box:
+        for pn in self.PARAMETERS_SPIN_BOX:
             label_icon: QtWidgets.QLabel = getattr(
-                self.ui, self.prefix_label + self.prefix_icon + pn
+                self.ui, self.PREFIX_LABEL + self.PREFIX_ICON + pn
             )
-            label: QtWidgets.QLabel = getattr(self.ui, self.prefix_label + pn)
+            label: QtWidgets.QLabel = getattr(self.ui, self.PREFIX_LABEL + pn)
             spin_box: QtWidgets.QSpinBox = getattr(
-                self.ui, self.prefix_spin_box + pn
+                self.ui, self.PREFIX_SPIN_BOX + pn
             )
 
             label_icon.setPixmap(
@@ -447,32 +438,32 @@ class DialogPreferences(QtWidgets.QDialog):
 
     def to_settings(self) -> None:
         """Save settings to the config."""
-        for item in self.parameters_checkboxes:
+        for item in self.PARAMETERS_CHECKBOXES:
             setattr(
                 self.settings.data,
                 item,
-                getattr(self.ui, self.prefix_checkbox + item).isChecked(),
+                getattr(self.ui, self.PREFIX_CHECKBOX + item).isChecked(),
             )
 
-        for item in self.parameters_line_edit:
+        for item in self.PARAMETERS_LINE_EDIT:
             setattr(
                 self.settings.data,
                 item,
-                getattr(self.ui, self.prefix_line_edit + item).text(),
+                getattr(self.ui, self.PREFIX_LINE_EDIT + item).text(),
             )
 
-        for item in self.parameters_combo:
+        for item in self.PARAMETERS_COMBO:
             setattr(
                 self.settings.data,
                 item[0],
-                getattr(self.ui, self.prefix_combo + item[0]).currentData(),
+                getattr(self.ui, self.PREFIX_COMBO + item[0]).currentData(),
             )
 
-        for item in self.parameters_spin_box:
+        for item in self.PARAMETERS_SPIN_BOX:
             setattr(
                 self.settings.data,
                 item,
-                getattr(self.ui, self.prefix_spin_box + item).value(),
+                getattr(self.ui, self.PREFIX_SPIN_BOX + item).value(),
             )
 
         self.s_settings_save.emit()

@@ -88,10 +88,33 @@ fix = true
 # Enable ALL rules to maximize strictness, efficiency, and performance profiling (PERF, FURB)
 lint.select = ["ALL"]
 # Ignoring rules that explicitly conflict with the ruff formatter
-lint.ignore = ["COM812", "ISC001"]
+lint.ignore = [
+  "COM812",
+  "ISC001",
+  "TD003",
+  "FIX002",
+  "ANN401",
+  "ARG001",
+  "FBT001",
+  "FBT002",
+  "PLR0913",
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.lint.pep8-naming]
+# Backward-compatible public API aliases in tidal_dl_ng/api.py retain
+# their original camelCase names by design (external callers may rely
+# on them). They are intentional public names, not local variables.
+ignore-names = [
+  "getNum",
+  "getItem",
+  "isItemValid",
+  "getItems",
+  "getLimitIndexs",
+  "getVersion",
+]
 
 [tool.black]
 # https://github.com/psf/black
@@ -205,6 +228,19 @@ per_rule_ignores = { DEP003 = ["shiboken6"] }
 [tool.pylint]
 # Match project line-length standard
 max-line-length = 79
+# Design-level rules disabled project-wide where the pattern is
+# intentional and API-stable (e.g. format functions with many
+# parameters for template substitution, unused *args/**kwargs for
+# callable compatibility, broad Exception with logger.exception).
+disable = [
+  "too-many-arguments",
+  "too-many-positional-arguments",
+  "too-many-locals",
+  "too-many-boolean-expressions",
+  "broad-exception-caught",
+  "unused-argument",
+  "keyword-arg-before-vararg",
+]
 # PySide6 ships as a C extension; allow pylint to introspect its members
 # instead of emitting c-extension-no-member (I1101) false positives.
 extension-pkg-allow-list = ["PySide6", "shiboken6"]
@@ -223,3 +259,20 @@ load-plugins = [
 ]
 # TypeVars use a T-prefixed CamelCase name (e.g. TConfigData).
 good-names = ["TConfigData", "_", "T"]
+# Backward-compatible public API aliases in tidal_dl_ng/api.py retain
+# their original camelCase names by design (external callers may rely
+# on them). They are intentional public names, not local variables.
+good-names-rgxs = [
+  "^getNum$",
+  "^getItem$",
+  "^isItemValid$",
+  "^getItems$",
+  "^getLimitIndexs$",
+  "^getVersion$",
+]
+
+# Data-model dataclasses (e.g. ResultItem, ItemRequest, Settings,
+# HelpSettings) legitimately carry many attributes; raise the threshold
+# for the whole project.
+[tool.pylint.design]
+max-attributes = 50

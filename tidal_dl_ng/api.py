@@ -16,8 +16,13 @@ from tidal_dl_ng.constants import REQUESTS_TIMEOUT_SEC
 
 logger = logging.getLogger(__name__)
 
+#: HTTP status code returned on a successful GET request.
+HTTP_OK: int = 200
+
 
 class ApiKey(TypedDict):
+    """Structure of a single TIDAL API client key entry."""
+
     platform: str
     formats: str
     clientId: str
@@ -27,6 +32,8 @@ class ApiKey(TypedDict):
 
 
 class ApiKeysData(TypedDict):
+    """Structure of the full API keys payload."""
+
     version: str
     keys: list[dict[str, str]]
 
@@ -36,7 +43,8 @@ class ApiKeysData(TypedDict):
 # https://github.com/yaronzz/Tidal-Media-Downloader/pull/840
 # https://github.com/nathom/streamrip/tree/main/streamrip
 
-# TODO: Implement this into `Download`: Session should randomize the usage.
+# TODO(Warry): Implement this into `Download`: Session should
+# randomize the usage. See issue #1.
 # Fallback API keys (JSON with comments stripped before parsing).
 __KEYS_JSON__ = """
 {
@@ -106,7 +114,7 @@ def _load_api_keys() -> ApiKeysData:
         Parsed API keys dictionary.
     """
     cleaned = _strip_json_comments(__KEYS_JSON__)
-    return cast(ApiKeysData, json.loads(cleaned))
+    return cast("ApiKeysData", json.loads(cleaned))
 
 
 _api_keys: ApiKeysData = _load_api_keys()
@@ -219,7 +227,7 @@ try:
         "https://api.github.com/gists/48d01f5a24b4b7b37f19443977c22cd6",
         timeout=REQUESTS_TIMEOUT_SEC,
     )
-    if response.status_code == 200:
+    if response.status_code == HTTP_OK:
         content = response.json()["files"]["tidal-api-key.json"]["content"]
         payload = json.loads(content)
         if (
@@ -227,11 +235,12 @@ try:
             and "version" in payload
             and "keys" in payload
         ):
-            _api_keys = cast(ApiKeysData, payload)
+            _api_keys = cast("ApiKeysData", payload)
             logger.info("API keys refreshed from remote Gist.")
         else:
             logger.warning(
-                "Invalid API keys payload from remote Gist. Using fallback keys."
+                "Invalid API keys payload from remote Gist. "
+                "Using fallback keys."
             )
-except Exception as e:
+except (requests.RequestException, json.JSONDecodeError, KeyError) as e:
     logger.warning("Could not refresh API keys from Gist: %s", e)

@@ -1,86 +1,102 @@
 """HTTP client helpers for downloading text and binary content."""
 
+from collections.abc import Mapping
+from typing import Final
+
 import requests
 from requests.adapters import HTTPAdapter
-from typing import Any
 from urllib3.util.retry import Retry
+
+_STATUS_FORCELIST: Final[list[int]] = [429, 500, 502, 503, 504]
+_RETRY_TOTAL: Final[int] = 5
+_RETRY_BACKOFF: Final[float] = 1.0
 
 
 class RequestsClient:
-    """HTTP client for downloading text content from a URI."""
+    """HTTP client for downloading text and binary content."""
+
+    def _build_session(self) -> requests.Session:
+        """Create a configured session with retry logic.
+
+        Returns:
+            A requests.Session mounted with retry-capable adapters
+            for both HTTP and HTTPS schemes.
+        """
+        session = requests.Session()
+        retries = Retry(
+            total=_RETRY_TOTAL,
+            backoff_factor=_RETRY_BACKOFF,
+            status_forcelist=_STATUS_FORCELIST,
+        )
+        adapter = HTTPAdapter(max_retries=retries)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        return session
 
     def download(
         self,
         uri: str,
         timeout: float | None = None,
-        headers: dict[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+        *,
         verify_ssl: bool = True,
     ) -> tuple[str, str]:
         """Download the content of a URI as text.
 
         Args:
-            uri (str): The URI to download.
-            timeout (float | None, optional): Timeout in seconds.
-                Defaults to None.
-            headers (dict[str, Any] | None, optional): HTTP headers.
-                Defaults to None.
-            verify_ssl (bool, optional): Whether to verify SSL.
+            uri: The URI to download.
+            timeout: Timeout in seconds. Defaults to None.
+            headers: Optional HTTP headers. Defaults to None.
+            verify_ssl: Whether to verify SSL certificates.
                 Defaults to True.
 
         Returns:
-            tuple[str, str]: Tuple of (text content, final URL).
+            A tuple of (text content, final URL).
         """
-        if not headers:
-            headers = {}
+        request_headers: dict[str, str] = dict(headers) if headers else {}
 
-        with requests.Session() as session:
-            retries = Retry(
-                total=5,
-                backoff_factor=1,
-                status_forcelist=[429, 500, 502, 503, 504],
-            )
-            session.mount("https://", HTTPAdapter(max_retries=retries))
-            session.mount("http://", HTTPAdapter(max_retries=retries))
-            with session.get(
-                uri, timeout=timeout, headers=headers, verify=verify_ssl
-            ) as response:
-                response.raise_for_status()
-                return response.text, response.url
+        with (
+            self._build_session() as session,
+            session.get(
+                uri,
+                timeout=timeout,
+                headers=request_headers,
+                verify=verify_ssl,
+            ) as response,
+        ):
+            response.raise_for_status()
+            return response.text, response.url
 
     def download_binary(
         self,
         uri: str,
         timeout: float | None = None,
-        headers: dict[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+        *,
         verify_ssl: bool = True,
     ) -> tuple[bytes, str]:
         """Download the content of a URI as raw bytes.
 
         Args:
-            uri (str): The URI to download.
-            timeout (float | None, optional): Timeout in seconds.
-                Defaults to None.
-            headers (dict[str, Any] | None, optional): HTTP headers.
-                Defaults to None.
-            verify_ssl (bool, optional): Whether to verify SSL.
+            uri: The URI to download.
+            timeout: Timeout in seconds. Defaults to None.
+            headers: Optional HTTP headers. Defaults to None.
+            verify_ssl: Whether to verify SSL certificates.
                 Defaults to True.
 
         Returns:
-            tuple[bytes, str]: Tuple of (binary content, final URL).
+            A tuple of (binary content, final URL).
         """
-        if not headers:
-            headers = {}
+        request_headers: dict[str, str] = dict(headers) if headers else {}
 
-        with requests.Session() as session:
-            retries = Retry(
-                total=5,
-                backoff_factor=1,
-                status_forcelist=[429, 500, 502, 503, 504],
-            )
-            session.mount("https://", HTTPAdapter(max_retries=retries))
-            session.mount("http://", HTTPAdapter(max_retries=retries))
-            with session.get(
-                uri, timeout=timeout, headers=headers, verify=verify_ssl
-            ) as response:
-                response.raise_for_status()
-                return response.content, response.url
+        with (
+            self._build_session() as session,
+            session.get(
+                uri,
+                timeout=timeout,
+                headers=request_headers,
+                verify=verify_ssl,
+            ) as response,
+        ):
+            response.raise_for_status()
+            return response.content, response.url

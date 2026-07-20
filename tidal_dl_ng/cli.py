@@ -7,9 +7,9 @@ favorites collections, and interactive GUI launch.
 import signal
 import sys
 import types
-from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, cast
+from urllib.parse import urlparse
 
 import typer
 from rich.console import Console, Group
@@ -22,12 +22,18 @@ from rich.progress import (
     TextColumn,
 )
 from rich.table import Table
+from tidalapi.album import Album
+from tidalapi.artist import Artist
+from tidalapi.media import Track, Video
+from tidalapi.mix import Mix
+from tidalapi.playlist import Playlist, UserPlaylist
 
 from tidal_dl_ng import __version__
 from tidal_dl_ng.config import HandlingApp, Settings, Tidal
 from tidal_dl_ng.constants import CTX_TIDAL, MediaType
 from tidal_dl_ng.download import Download
-from tidal_dl_ng.model.downloader import DownloadContext, ItemRequest
+from tidal_dl_ng.gui import gui_activate
+from tidal_dl_ng.helper.exceptions import MediaUnknown
 from tidal_dl_ng.helper.path import get_format_template, path_file_settings
 from tidal_dl_ng.helper.tidal import (
     all_artist_album_ids,
@@ -38,6 +44,10 @@ from tidal_dl_ng.helper.tidal import (
 )
 from tidal_dl_ng.helper.wrapper import LoggerWrapped
 from tidal_dl_ng.model.cfg import HelpSettings
+from tidal_dl_ng.model.downloader import DownloadContext, ItemRequest
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
@@ -54,6 +64,18 @@ app.add_typer(app_dl_fav, name="dl_fav")
 console = Console()
 
 
+def _get_tidal(ctx: typer.Context) -> Tidal:
+    """Retrieve the Tidal session object from the Typer context.
+
+    Args:
+        ctx: Typer context object holding the Tidal instance.
+
+    Returns:
+        Tidal: The Tidal configuration/session object.
+    """
+    return cast("Tidal", ctx.obj[CTX_TIDAL])
+
+
 def version_callback(value: bool) -> None:
     """Callback to print version and exit if version flag is set.
 
@@ -61,8 +83,8 @@ def version_callback(value: bool) -> None:
         value: If True, prints version and exits.
     """
     if value:
-        print(f"{__version__}")
-        raise typer.Exit()
+        console.print(f"{__version__}")
+        raise typer.Exit
 
 
 @app.callback()
@@ -91,7 +113,7 @@ def callback_app(
 def _handle_track_or_video(
     dl: Download,
     ctx: typer.Context,
-    media: object,
+    media: Track | Video,
     file_template: str,
     idx: int,
     urls_pos_last: int,
@@ -101,12 +123,12 @@ def _handle_track_or_video(
     Args:
         dl: The Download instance.
         ctx: Typer context object.
-        media: The media object to download.
+        media: The media object to download (Track or Video).
         file_template: The file template for saving the media.
         idx: The index of the item in the list.
         urls_pos_last: The last index in the URLs list.
     """
-    settings = ctx.obj[CTX_TIDAL].settings
+    settings = _get_tidal(ctx).settings
     download_delay: bool = bool(
         settings.data.download_delay and idx < urls_pos_last
     )
@@ -127,7 +149,7 @@ def _handle_album_playlist_mix_artist(
     dl: Download,
     handling_app: HandlingApp,
     media_type: MediaType,
-    media: object,
+    media: Album | Playlist | UserPlaylist | Mix | Artist,
     item_id: str,
     file_template: str,
 ) -> bool:
@@ -146,11 +168,14 @@ def _handle_album_playlist_mix_artist(
         bool: False if aborted, True otherwise.
     """
     item_ids: list[str] = []
-    settings = ctx.obj[CTX_TIDAL].settings
+    settings = _get_tidal(ctx).settings
 
     if media_type == MediaType.ARTIST:
         media_type = MediaType.ALBUM
-        item_ids += all_artist_album_ids(media)
+        if isinstance(media, Artist):
+            item_ids += [
+                str(album_id) for album_id in all_artist_album_ids(media)
+            ]
     else:
         item_ids.append(item_id)
 
@@ -196,53 +221,59 @@ def _process_url(
     Returns:
         bool: False if aborted, True otherwise.
     """
-    settings = ctx.obj[CTX_TIDAL].settings
+    settings = _get_tidal(ctx).settings
 
     if handling_app.event_abort.is_set():
         return False
 
     if "http" not in url:
-        fn_logger(f"It seems like you have supplied an invalid URL: {url}")
+        fn_logger.error(
+            "It seems like you have supplied an invalid URL: %s", url
+        )
         return True
 
     url_clean: str = url_ending_clean(url)
 
     media_type = get_tidal_media_type(url_clean)
     if not isinstance(media_type, MediaType):
-        fn_logger(f"Could not determine media type for: {url_clean}")
+        fn_logger.error("Could not determine media type for: %s", url_clean)
         return True
 
-    url_clean_id = get_tidal_media_id(url_clean)
-    if not isinstance(url_clean_id, str):
-        fn_logger(f"Could not determine media id for: {url_clean}")
+    if not (url_clean_id := get_tidal_media_id(url_clean)):
+        fn_logger.error("Could not determine media id for: %s", url_clean)
         return True
 
-    file_template = get_format_template(media_type, settings)
-    if not isinstance(file_template, str):
-        fn_logger(f"Could not determine file template for: {url_clean}")
+    if not (file_template := get_format_template(media_type, settings)):
+        fn_logger.error("Could not determine file template for: %s", url_clean)
         return True
+
+    file_template_str: str = str(file_template)
 
     try:
-        media = instantiate_media(
-            ctx.obj[CTX_TIDAL].session, media_type, url_clean_id
+        media: Track | Video | Album | Playlist | Mix | Artist = (
+            instantiate_media(
+                _get_tidal(ctx).session, media_type, url_clean_id
+            )
         )
-    except Exception:  # noqa: BLE001
-        fn_logger(
-            f"Media not found (ID: {url_clean_id}). "
-            "Maybe it is not available anymore."
+    except MediaUnknown:
+        fn_logger.exception(
+            "Media not found (ID: %s). Maybe it is not available anymore.",
+            url_clean_id,
         )
         return True
 
-    if media_type in {MediaType.TRACK, MediaType.VIDEO}:
+    if media_type in {MediaType.TRACK, MediaType.VIDEO} and isinstance(
+        media, Track | Video
+    ):
         _handle_track_or_video(
-            dl, ctx, media, file_template, idx, urls_pos_last
+            dl, ctx, media, file_template_str, idx, urls_pos_last
         )
     elif media_type in {
         MediaType.ALBUM,
         MediaType.PLAYLIST,
         MediaType.MIX,
         MediaType.ARTIST,
-    }:
+    } and isinstance(media, Album | Playlist | UserPlaylist | Mix | Artist):
         return _handle_album_playlist_mix_artist(
             ctx,
             dl,
@@ -250,7 +281,7 @@ def _process_url(
             media_type,
             media,
             url_clean_id,
-            file_template,
+            file_template_str,
         )
     return True
 
@@ -258,6 +289,7 @@ def _process_url(
 def _download(
     ctx: typer.Context,
     urls: list[str],
+    *,
     try_login: bool = True,
 ) -> bool:
     """Invoke download and track progress for a list of URLs.
@@ -273,7 +305,7 @@ def _download(
     if try_login:
         ctx.invoke(login, ctx)
 
-    settings: Settings = ctx.obj[CTX_TIDAL].settings
+    settings: Settings = _get_tidal(ctx).settings
     handling_app: HandlingApp = HandlingApp()
 
     progress: Progress = Progress(
@@ -301,7 +333,7 @@ def _download(
     fn_logger = LoggerWrapped(progress.print)
 
     dl = Download(
-        tidal_obj=ctx.obj[CTX_TIDAL],
+        tidal_obj=_get_tidal(ctx),
         path_base=settings.data.download_base_path,
         fn_logger=fn_logger,
         context=DownloadContext(
@@ -328,7 +360,13 @@ def _download(
             for idx, item in enumerate(urls):
                 if (
                     _process_url(
-                        dl, ctx, handling_app, item, idx, urls_pos_last, fn_logger
+                        dl,
+                        ctx,
+                        handling_app,
+                        item,
+                        idx,
+                        urls_pos_last,
+                        fn_logger,
                     )
                     is False
                 ):
@@ -368,9 +406,7 @@ def settings_management(
         typer.launch(str(config_path))
     else:
         settings = Settings()
-        d_settings: dict[str, object] = dict(
-            settings.data.to_dict()
-        )
+        d_settings: dict[str, object] = dict(settings.data.to_dict())
 
         if names:
             if names[0] not in d_settings:
@@ -381,9 +417,7 @@ def settings_management(
                 settings.set_option(names[0], names[1])
                 settings.save()
         else:
-            help_settings: dict[str, str] = dict(
-                HelpSettings().to_dict()
-            )
+            help_settings: dict[str, str] = dict(HelpSettings().to_dict())
             table = Table(title=f"Config: {path_file_settings()}")
             table.add_column("Key", style="cyan", no_wrap=True)
             table.add_column("Value", style="magenta")
@@ -426,7 +460,7 @@ def logout() -> bool:
     tidal = Tidal(settings)
 
     if result := tidal.logout():
-        print("You have been successfully logged out.")
+        console.print("You have been successfully logged out.")
 
     return result
 
@@ -467,7 +501,7 @@ def download(
             console.print(
                 "Provide either URLs or a file containing URLs (one per line)."
             )
-            raise typer.Abort()
+            raise typer.Abort
 
     return _download(ctx, urls)
 
@@ -549,8 +583,13 @@ def _download_fav_factory(
         bool: Download result.
     """
     ctx.invoke(login, ctx)
+    tidal = _get_tidal(ctx)
+    if (user := tidal.session.user) is None:
+        console.print("No user is logged in.")
+        return False
+    favorites = cast("object", user.favorites)
     func_favorites: Callable[[], list[object]] = getattr(
-        ctx.obj[CTX_TIDAL].session.user.favorites, func_name_favorites
+        favorites, func_name_favorites
     )
     media_urls: list[str] = [
         str(getattr(media, "share_url", "")) for media in func_favorites()
@@ -565,10 +604,8 @@ def gui(ctx: typer.Context) -> None:
     Args:
         ctx: Typer context object.
     """
-    from tidal_dl_ng.gui import gui_activate
-
     ctx.invoke(login, ctx)
-    gui_activate(ctx.obj[CTX_TIDAL])
+    gui_activate(_get_tidal(ctx))
 
 
 def handle_sigint_term(
