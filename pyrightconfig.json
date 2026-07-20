@@ -8,5 +8,12 @@
   "pythonVersion": "3.12",
   "typeCheckingMode": "strict",
   "useLibraryCodeForTypes": true,
-  "reportMissingTypeStubs": "information"
+  "reportMissingTypeStubs": "information",
+  "executionEnvironments": [
+    {
+      "root": "tidal_dl_ng/helper/decryption.py",
+      "reportUnknownVariableType": "none",
+      "reportUnknownMemberType": "none"
+    }
+  ]
 }

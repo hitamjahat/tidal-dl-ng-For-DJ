@@ -114,6 +114,16 @@ ignore-names = [
   "getItems",
   "getLimitIndexs",
   "getVersion",
+  # Qt framework method overrides must keep camelCase names.
+  "sizeHint",
+  "updateGeometries",
+  "lessThan",
+  "filterAcceptsRow",
+  # Project exception names intentionally omit the "Error" suffix to
+  # match their domain meaning (MediaUnknown, MediaMissing, etc.).
+  "MediaUnknown",
+  "UnknownManifestFormat",
+  "MediaMissing",
 ]
 
 [tool.black]
@@ -240,10 +250,20 @@ disable = [
   "broad-exception-caught",
   "unused-argument",
   "keyword-arg-before-vararg",
+  # Mixin classes (CollectionDownloadMixin, MetadataWriterMixin) inherit
+  # from DownloadProtocol but intentionally leave its abstract methods
+  # unimplemented; the concrete Download class supplies them. This is a
+  # deliberate mixin pattern, not a missing implementation.
+  "abstract-method",
 ]
+# Qt framework method overrides (sizeHint, updateGeometries, lessThan,
 # PySide6 ships as a C extension; allow pylint to introspect its members
 # instead of emitting c-extension-no-member (I1101) false positives.
 extension-pkg-allow-list = ["PySide6", "shiboken6"]
+# PySide6 signal instances (SignalInstance) expose connect/disconnect/
+# emit at the C level; pylint cannot infer them from the extension, so
+# declare them as generated members to avoid false no-member (E1101).
+generated-members = [".*\\.connect", ".*\\.disconnect", ".*\\.emit"]
 # Enable extra strict extensions for performance and efficiency
 load-plugins = [
   "pylint.extensions.bad_builtin",
@@ -269,6 +289,11 @@ good-names-rgxs = [
   "^getItems$",
   "^getLimitIndexs$",
   "^getVersion$",
+  # Qt framework method overrides must keep camelCase names.
+  "^sizeHint$",
+  "^updateGeometries$",
+  "^lessThan$",
+  "^filterAcceptsRow$",
 ]
 
 # Data-model dataclasses (e.g. ResultItem, ItemRequest, Settings,

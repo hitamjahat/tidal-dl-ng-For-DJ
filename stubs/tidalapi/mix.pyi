@@ -10,6 +10,7 @@ class Mix:
     id: object
     name: str
     title: str
+    sub_title: str
     description: str
     duration: int
     num_tracks: int

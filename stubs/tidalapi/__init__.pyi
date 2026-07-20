@@ -7,6 +7,7 @@ from tidalapi.media import (
     Media,
     MediaMetadataTags,
     Quality,
+    Stream,
     Track,
     Video,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "Mix",
     "Playlist",
     "Quality",
+    "Stream",
     "Track",
     "UserPlaylist",
     "Video",

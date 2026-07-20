@@ -21,6 +21,7 @@ from tidal_dl_ng.constants import (
     CoverDimensions,
     MetadataTargetUPC,
 )
+from tidal_dl_ng.helper.download_protocol import DownloadProtocol
 from tidal_dl_ng.helper.tidal import (
     extract_contributor_names,
     fetch_raw_track_and_album,
@@ -29,7 +30,6 @@ from tidal_dl_ng.helper.tidal import (
     name_builder_title,
     parse_track_and_album_extras,
 )
-from tidal_dl_ng.helper.download_protocol import DownloadProtocol
 from tidal_dl_ng.metadata import Metadata
 from tidal_dl_ng.model.downloader import (
     TrackAssets,
@@ -117,11 +117,10 @@ class MetadataWriterMixin(DownloadProtocol):
         return True, assets.path_lyrics, assets.path_cover
 
     def _release_date_str(self, track: Track) -> str:
+        album = track.album
         date = None
-        if hasattr(track, "album") and track.album is not None:
-            date = (
-                track.album.available_release_date or track.album.release_date
-            )
+        if album is not None:
+            date = album.available_release_date or album.release_date
         return date.strftime("%Y-%m-%d") if date else ""
 
     def _collect_lyrics(
@@ -137,11 +136,11 @@ class MetadataWriterMixin(DownloadProtocol):
             return lyrics, lyrics_synced, lyrics_unsynced, None
         try:
             lyrics_obj = track.lyrics()
-            if getattr(lyrics_obj, "text", None):
-                lyrics_unsynced = lyrics_obj.text
+            if text := getattr(lyrics_obj, "text", None):
+                lyrics_unsynced = text or ""
                 lyrics = lyrics_unsynced
-            if getattr(lyrics_obj, "subtitles", None):
-                lyrics_synced = lyrics_obj.subtitles
+            if subtitles := getattr(lyrics_obj, "subtitles", None):
+                lyrics_synced = subtitles or ""
                 lyrics = lyrics_synced
         except (RequestException, TooManyRequests, ValueError):
             lyrics = ""
@@ -169,11 +168,10 @@ class MetadataWriterMixin(DownloadProtocol):
             if cover_dimension != CoverDimensions.PxORIGIN
             else int(CoverDimensions.Px1280)
         )
-        url_cover = (
-            track.album.image(dim)
-            if hasattr(track, "album") and track.album
-            else None
-        )
+        album = track.album
+        url_cover: str | None = None
+        if album is not None:
+            url_cover = album.image(dim)
         cover_data_tmp = self.cover_data(url=url_cover) if url_cover else None
         cover_data = (
             cover_data_tmp if isinstance(cover_data_tmp, bytes) else None
@@ -183,12 +181,12 @@ class MetadataWriterMixin(DownloadProtocol):
             and self.settings.data.cover_album_file
             and is_parent_album
         ):
-            if cover_dimension == CoverDimensions.PxORIGIN:
-                url_cover_album_file = (
-                    track.album.image(CoverDimensions.PxORIGIN)
-                    if hasattr(track, "album") and track.album
-                    else None
-                )
+            url_cover_album_file: str | None = None
+            if (
+                cover_dimension == CoverDimensions.PxORIGIN
+                and album is not None
+            ):
+                url_cover_album_file = album.image(CoverDimensions.PxORIGIN)
                 cover_data_album_file = self.cover_data(
                     url=url_cover_album_file
                 )
@@ -334,10 +332,10 @@ class MetadataWriterMixin(DownloadProtocol):
                 and extras_data.cover_data
                 else b""
             ),
-            album_replay_gain=media_stream.album_replay_gain,
-            album_peak_amplitude=media_stream.album_peak_amplitude,
-            track_replay_gain=media_stream.track_replay_gain,
-            track_peak_amplitude=media_stream.track_peak_amplitude,
+            album_replay_gain=media_stream.album_replay_gain or 1.0,
+            album_peak_amplitude=media_stream.album_peak_amplitude or 1.0,
+            track_replay_gain=media_stream.track_replay_gain or 1.0,
+            track_peak_amplitude=media_stream.track_peak_amplitude or 1.0,
             url_share=(
                 track.share_url
                 if track.share_url and self.settings.data.metadata_write_url

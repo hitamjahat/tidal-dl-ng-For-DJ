@@ -11,19 +11,19 @@ import logging
 import os
 import pathlib
 from concurrent import futures
-from typing import Any, cast
+from typing import TYPE_CHECKING, cast
 
 from rich.progress import Progress, TaskID
 from tidalapi.album import Album
-from tidalapi.media import Track, Video
 from tidalapi.mix import Mix
 from tidalapi.playlist import Playlist, UserPlaylist
 
 from tidal_dl_ng.constants import (
-    AudioExtensionsValid,
     PLAYLIST_EXTENSION,
     PLAYLIST_PREFIX,
+    AudioExtensionsValid,
 )
+from tidal_dl_ng.helper.download_protocol import DownloadProtocol
 from tidal_dl_ng.helper.path import (
     format_path_media,
     path_file_sanitize,
@@ -35,8 +35,12 @@ from tidal_dl_ng.model.downloader import (
     ItemRequest,
     ProgressHandles,
 )
-from tidal_dl_ng.helper.download_protocol import DownloadProtocol
 from tidal_dl_ng.runtime_trace import new_operation_id, trace_event
+
+if TYPE_CHECKING:
+    from tidalapi.media import Track, Video
+
+    MediaItem = Track | Video | Album | Playlist | UserPlaylist | Mix
 
 
 class CollectionDownloadMixin(DownloadProtocol):
@@ -82,10 +86,11 @@ class CollectionDownloadMixin(DownloadProtocol):
         ) = download_context
 
         # Set up progress tracking
-        progress: Progress | None = (
-            self.runtime.progress_overall or self.runtime.progress
-        )
-        assert progress is not None
+        progress = self.runtime.progress_overall or self.runtime.progress
+        if progress is None:
+            self.fn_logger.error("No progress handler available; aborting.")
+            return
+
         progress_task: TaskID = progress.add_task(
             f"[green]List '{list_media_name_short}'",
             total=len(items),
@@ -128,14 +133,14 @@ class CollectionDownloadMixin(DownloadProtocol):
                 ),
             )
 
-        self.fn_logger.info(f"Finished list '{list_media_name}'.")
+        self.fn_logger.info("Finished list '%s'.", list_media_name)
 
     def _setup_collection_download_context(
         self,
         media: Album | Playlist | UserPlaylist | Mix,
         file_template: str,
         video_download: bool,
-    ) -> tuple[str, str, str, list[Any], bool]:
+    ) -> tuple[str, str, str, list[object], bool]:
         """Set up download context for media collection.
 
         Args:
@@ -145,7 +150,7 @@ class CollectionDownloadMixin(DownloadProtocol):
             video_download (bool): Whether to allow video downloads.
 
         Returns:
-            tuple[str, str, str, list[Any], bool]: (
+            tuple[str, str, str, list[object], bool]: (
                 file_name_relative, list_media_name,
                 list_media_name_short, items, progress_stdout
             )
@@ -168,7 +173,7 @@ class CollectionDownloadMixin(DownloadProtocol):
         list_media_name_short: str = list_media_name[:30]
 
         # Get all items of the list.
-        items = items_results_all(
+        items: list[object] = items_results_all(
             self.tidal.session, media, videos_include=video_download
         )
 
@@ -177,9 +182,7 @@ class CollectionDownloadMixin(DownloadProtocol):
         if self.runtime.progress_gui is not None:
             progress_stdout = False
 
-            cast("Any", self.runtime.progress_gui.list_name).emit(
-                list_media_name_short
-            )
+            self.runtime.progress_gui.list_name.emit(list_media_name_short)
 
         return (
             file_name_relative,
@@ -191,14 +194,14 @@ class CollectionDownloadMixin(DownloadProtocol):
 
     def _execute_collection_downloads(
         self,
-        items: list[Any],
+        items: list[object],
         request: CollectionDownloadRequest,
         progress_handles: ProgressHandles,
     ) -> list[pathlib.Path]:
         """Execute downloads for all items in the collection.
 
         Args:
-            items (list[Any]): List of media items to download.
+            items (list[object]): List of media items to download.
             request (CollectionDownloadRequest): Download parameters.
             progress_handles (ProgressHandles): Progress bar handles.
 
@@ -231,7 +234,7 @@ class CollectionDownloadMixin(DownloadProtocol):
             )
 
             if not progress_stdout and self.runtime.progress_gui is not None:
-                cast("Any", self.runtime.progress_gui.list_item).emit(100.0)
+                self.runtime.progress_gui.list_item.emit(100.0)
 
             trace_event(
                 "collection_download",
@@ -249,11 +252,13 @@ class CollectionDownloadMixin(DownloadProtocol):
                 max_workers=self.settings.data.downloads_concurrent_max
             ) as executor:
                 # Dispatch all download tasks to worker threads
-                download_futures: list[futures.Future[Any]] = [
+                download_futures: list[
+                    futures.Future[tuple[bool, pathlib.Path | str]]
+                ] = [
                     executor.submit(
                         self.item,
                         ItemRequest(
-                            media=item_media,
+                            media=cast("MediaItem | None", item_media),
                             file_template=request.file_name_relative,
                             quality_audio=request.quality_audio,
                             quality_video=request.quality_video,
@@ -304,43 +309,9 @@ class CollectionDownloadMixin(DownloadProtocol):
         )
         return result_dirs
 
-    def _create_download_futures(
-        self,
-        items: list[Any],
-        request: CollectionDownloadRequest,
-    ) -> list[futures.Future[Any]]:
-        """Create download futures for all items in the collection.
-
-        Args:
-            items (list[Any]): List of media items to download.
-            request (CollectionDownloadRequest): Download parameters.
-
-        Returns:
-            list[futures.Future[Any]]: List of download futures.
-        """
-        with futures.ThreadPoolExecutor(
-            max_workers=self.settings.data.downloads_concurrent_max
-        ) as executor:
-            return [
-                executor.submit(
-                    self.item,
-                    ItemRequest(
-                        media=item_media,
-                        file_template=request.file_name_relative,
-                        quality_audio=request.quality_audio,
-                        quality_video=request.quality_video,
-                        download_delay=request.download_delay,
-                        is_parent_album=request.is_album,
-                        list_position=count + 1,
-                        list_total=request.list_total,
-                    ),
-                )
-                for count, item_media in enumerate(items)
-            ]
-
     def _process_download_futures(
         self,
-        futures_list: list[futures.Future[Any]],
+        futures_list: list[futures.Future[tuple[bool, pathlib.Path | str]]],
         progress: Progress,
         progress_task: TaskID,
         progress_stdout: bool,
@@ -348,8 +319,8 @@ class CollectionDownloadMixin(DownloadProtocol):
         """Process download futures and collect results.
 
         Args:
-            futures_list (list[futures.Future[Any]]): List of download
-                futures.
+            futures_list (list[futures.Future[tuple[bool, Path | str]]]):
+                List of download futures.
             progress (Progress): Progress bar instance.
             progress_task (TaskID): Progress task ID.
             progress_stdout (bool): Whether to show progress in stdout.
@@ -365,13 +336,16 @@ class CollectionDownloadMixin(DownloadProtocol):
             _status, result_path_file = future.result()
 
             if result_path_file:
-                result_dirs.append(result_path_file.parent)
+                if isinstance(result_path_file, pathlib.Path):
+                    result_dirs.append(result_path_file.parent)
+                else:
+                    result_dirs.append(pathlib.Path(result_path_file).parent)
 
             # Advance progress bar.
             progress.advance(progress_task)
 
             if not progress_stdout and self.runtime.progress_gui is not None:
-                cast("Any", self.runtime.progress_gui.list_item).emit(
+                self.runtime.progress_gui.list_item.emit(
                     progress.tasks[progress_task].percentage
                 )
 
@@ -417,7 +391,7 @@ class CollectionDownloadMixin(DownloadProtocol):
                 path_file_sanitize(path_playlist, adapt=True)
             )
 
-            self.fn_logger.debug(f"Playlist: Creating {path_playlist}")
+            self.fn_logger.debug("Playlist: Creating %s", path_playlist)
 
             # Get all tracks in the directory
             path_tracks: list[pathlib.Path] = []
@@ -435,7 +409,7 @@ class CollectionDownloadMixin(DownloadProtocol):
                 path_tracks.sort(
                     key=lambda x: (
                         getattr(x.stat(), "st_birthtime", None)
-                        or getattr(x.stat(), "st_ctime")
+                        or x.stat().st_ctime_ns
                     )
                 )
 

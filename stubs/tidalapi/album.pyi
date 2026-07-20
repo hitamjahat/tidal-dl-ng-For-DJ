@@ -1,5 +1,6 @@
 """Stub for tidalapi.album with resolved forward references."""
 
+from datetime import date
 from typing import List, Optional
 
 from tidalapi.artist import Artist
@@ -20,10 +21,14 @@ class Album:
     copyright: Optional[str]
     explicit: bool
     year: int
-    release_date: Optional[object]
+    release_date: Optional[date]
+    available_release_date: Optional[date]
     artist: Optional[Artist]
     type: str
     num_volumes: int
+    upc: Optional[str]
+    share_url: Optional[str]
 
+    def image(self, dimensions: int | str = 320) -> str: ...
     def items(self) -> List[Track | Video]: ...
     def tracks(self) -> List[Track]: ...

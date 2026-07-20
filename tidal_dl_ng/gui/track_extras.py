@@ -3,7 +3,8 @@
 Handles track extras caching and retrieval.
 """
 
-from collections.abc import Callable
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Any, cast
 
 from PySide6 import QtCore
@@ -17,7 +18,15 @@ from tidal_dl_ng.logger import logger_gui
 from tidal_dl_ng.worker import Worker
 
 if TYPE_CHECKING:
-    from tidal_dl_ng.gui.main_window import MainWindow
+    from collections.abc import Callable, Mapping, Sequence
+
+    from tidal_dl_ng.cache import TrackExtrasCache
+    from tidal_dl_ng.gui.covers import CoverManager
+
+    # A single track's extra metadata mapping.
+    TrackExtras = Mapping[str, object]
+    # Callback invoked when extras are ready (or failed) for a track.
+    TrackExtrasCallback = Callable[[str, "TrackExtras | None"], None]
 
 
 class TrackExtrasMixin:
@@ -26,51 +35,74 @@ class TrackExtrasMixin:
     # Attributes provided by MainWindow at runtime.
     tidal: Any
     threadpool: Any
-    track_extras_cache: Any
+    track_extras_cache: TrackExtrasCache
     _pending_extras_workers: dict[str, Worker]
-    _track_extras_callbacks: dict[str, Callable[[str, dict[str, Any] | None], None]]
-    cover_manager: Any
+    _track_extras_callbacks: dict[str, TrackExtrasCallback]
+    cover_manager: CoverManager
 
-    # Signals from MainWindow
+    # Signals from MainWindow.
     s_track_extras_ready: Any
     s_invoke_callback: Any
 
     def get_track_extras(
-        self, track_id: str, callback: Callable[[str, dict[str, Any] | None], None] | None = None
-    ) -> dict[str, Any] | None:
-        """Return cached extras for a track or start async fetch."""
+        self,
+        track_id: str,
+        callback: TrackExtrasCallback | None = None,
+    ) -> TrackExtras | None:
+        """Return cached extras for a track or start async fetch.
+
+        Args:
+            track_id: Identifier of the track to fetch extras for.
+            callback: Optional callback invoked on the main thread once
+                extras are available (or ``None`` on failure).
+
+        Returns:
+            The cached extras when present, otherwise ``None`` while an
+            asynchronous fetch is started.
+        """
         cached = self.track_extras_cache.get(track_id)
         if cached is not None:
-            return cast(dict[str, Any], cached)
+            return cached
 
-        # Chain callbacks if multiple components request extras for the same track simultaneously
+        # Chain callbacks when several components request the same track
+        # simultaneously so every requester is notified on completion.
         if callback:
             existing_callback = self._track_extras_callbacks.get(track_id)
             if existing_callback:
+                old_callback = existing_callback
+                new_callback = callback
 
                 def chained_callback(
-                    t_id: str, ext: dict[str, Any] | None, cb_old: Any = existing_callback, cb_new: Any = callback
+                    t_id: str,
+                    ext: TrackExtras | None,
                 ) -> None:
-                    cb_old(t_id, ext)
-                    cb_new(t_id, ext)
+                    old_callback(t_id, ext)
+                    new_callback(t_id, ext)
 
                 self._track_extras_callbacks[track_id] = chained_callback
             else:
                 self._track_extras_callbacks[track_id] = callback
 
-        # If a worker is already busy fetching this track, don't spawn another one
+        # Avoid spawning a second worker for an in-flight track.
         if track_id in self._pending_extras_workers:
             return None
 
         def worker() -> None:
-            extras: dict[str, Any] | None = None
+            extras: TrackExtras | None = None
             try:
-                track_json, album_json = fetch_raw_track_and_album(self.tidal.session, track_id)
+                track_json, album_json = fetch_raw_track_and_album(
+                    self.tidal.session, track_id
+                )
                 extras = parse_track_and_album_extras(track_json, album_json)
                 extras = self._decorate_extras(extras)
                 self.track_extras_cache.set(track_id, extras)
-            except Exception as e:
-                logger_gui.error(f"Failed to fetch track extras for {track_id}: {e}", exc_info=True)
+            except (KeyError, TypeError, ValueError, AttributeError) as error:
+                logger_gui.error(
+                    "Failed to fetch track extras for %s: %s",
+                    track_id,
+                    error,
+                    exc_info=True,
+                )
                 extras = None
             finally:
                 self._pending_extras_workers.pop(track_id, None)
@@ -83,29 +115,54 @@ class TrackExtrasMixin:
         return None
 
     @QtCore.Slot(str, object)
-    def _on_invoke_callback(self, track_id: str, extras: dict[str, Any] | None) -> None:
+    def _on_invoke_callback(
+        self,
+        track_id: str,
+        extras: TrackExtras | None,
+    ) -> None:
         """Invoke the stored callback for a track in the main thread."""
         callback = self._track_extras_callbacks.pop(track_id, None)
         if callback:
             try:
                 callback(track_id, extras)
-            except Exception as e:
-                logger_gui.error(f"Error in track extras callback for {track_id}: {e}", exc_info=True)
+            except (KeyError, TypeError, ValueError, AttributeError) as error:
+                logger_gui.error(
+                    "Error in track extras callback for %s: %s",
+                    track_id,
+                    error,
+                    exc_info=True,
+                )
 
-    def _decorate_extras(self, extras: dict[str, Any] | None) -> dict[str, Any]:
-        """Add formatted string fields to extras dict."""
+    def _decorate_extras(
+        self,
+        extras: TrackExtras | None,
+    ) -> dict[str, object]:
+        """Add formatted string fields to an extras mapping.
+
+        Args:
+            extras: The raw extras mapping, or ``None`` when unavailable.
+
+        Returns:
+            A new dict with derived display fields added.
+        """
         if not extras:
             return {}
 
-        result = dict(extras)
-        result["genres_text"] = ", ".join(result.get("genres", []))
+        result: dict[str, object] = dict(extras)
+        genres = cast("list[str]", result.get("genres", []))
+        result["genres_text"] = ", ".join(genres)
 
-        for role, key in [
+        roles: Sequence[tuple[str, str]] = [
             ("producer", "producers_text"),
             ("composer", "composers_text"),
             ("lyricist", "lyricists_text"),
-        ]:
-            result[key] = extract_contributor_names(result.get("contributors_by_role"), role)
+        ]
+        contributors = cast(
+            "dict[str, list[str]] | None",
+            result.get("contributors_by_role"),
+        )
+        for role, key in roles:
+            result[key] = extract_contributor_names(contributors, role)
 
         return result
 

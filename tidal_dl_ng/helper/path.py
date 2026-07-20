@@ -200,8 +200,17 @@ def format_str_media(
     """
     try:
         # Try each formatter function in sequence
+        result = _format_names(
+            name,
+            media,
+            delimiter_artist,
+            delimiter_album_artist,
+            use_primary_album_artist=use_primary_album_artist,
+        )
+        if result is not None:
+            return result
+
         for formatter in (
-            _format_names,
             _format_numbers,
             _format_ids,
             _format_durations,
@@ -215,9 +224,6 @@ def format_str_media(
                 album_track_num_pad_min,
                 list_pos,
                 list_total,
-                delimiter_artist=delimiter_artist,
-                delimiter_album_artist=delimiter_album_artist,
-                use_primary_album_artist=use_primary_album_artist,
             )
             if result is not None:
                 return result
@@ -264,11 +270,11 @@ def _format_artist_names(
         # Otherwise use track artists as before
         if hasattr(media, "artists"):
             return name_builder_artist(media, delimiter=delimiter_artist)
-        if hasattr(media, "artist"):
+        if hasattr(media, "artist") and media.artist is not None:
             return media.artist.name
-    if name == "album_artist":
+    if name == "album_artist" and isinstance(media, Track | Album):
         return name_builder_album_artist(media, first_only=True)
-    if name == "album_artists":
+    if name == "album_artists" and isinstance(media, Track | Album):
         return name_builder_album_artist(
             media, delimiter=delimiter_album_artist
         )
@@ -301,7 +307,7 @@ def _format_titles(
     if name == "album_title":
         if isinstance(media, Album):
             return media.name
-        if isinstance(media, Track):
+        if isinstance(media, Track) and media.album is not None:
             return media.album.name
     return None
 
@@ -419,20 +425,17 @@ def _format_ids(
     # Handle album IDs
     if name == "album_id" and isinstance(media, Album | Track):
         album = media if isinstance(media, Album) else media.album
-        if album is None:
-            return None
-        return str(album.id)
+        return str(album.id) if album is not None else None
     # Handle ISRC
     if name == "isrc" and isinstance(media, Track):
         return media.isrc
+    # Handle artist IDs
     if name == "album_artist_id" and isinstance(media, Album):
-        if media.artist is None:
-            return None
-        return str(media.artist.id)
+        return str(media.artist.id) if media.artist is not None else None
     if name == "track_artist_id" and isinstance(media, Track):
-        if media.album is None or media.album.artist is None:
-            return None
-        return str(media.album.artist.id)
+        album = media.album
+        artist = album.artist if album is not None else None
+        return str(artist.id) if artist is not None else None
     return None
 
 
@@ -586,8 +589,7 @@ def _get_num_volumes(media: MediaTypeUnion) -> int:
     Returns:
         int: The number of volumes, defaulting to 1 if unavailable.
     """
-    album = getattr(media, "album", None)
-    if album is None:
+    if (album := getattr(media, "album", None)) is None:
         return 1
     return int(getattr(album, "num_volumes", 1))
 

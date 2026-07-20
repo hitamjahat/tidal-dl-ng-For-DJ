@@ -27,6 +27,9 @@ from tidal_dl_ng.model.downloader import (
     ItemRequest,
 )
 
+# Media types that can be downloaded or prepared by the Download class.
+DownloadMedia = Track | Video | Album | Playlist | UserPlaylist | Mix
+
 
 class DownloadProtocol(Protocol):
     """Structural type for the shared Download surface."""
@@ -41,17 +44,17 @@ class DownloadProtocol(Protocol):
 
     def _validate_and_prepare_media(
         self,
-        media: Track | Video | Album | Playlist | UserPlaylist | Mix | None,
+        media: DownloadMedia | None,
         media_id: str | None,
         media_type: MediaType | None,
         video_download: bool = True,
-    ) -> Track | Video | Album | Playlist | UserPlaylist | Mix | None:
+    ) -> DownloadMedia | None:
         """Validate and prepare a media instance for download."""
-        ...
+        raise NotImplementedError
 
     def item(self, request: ItemRequest) -> tuple[bool, pathlib.Path | str]:
         """Download a single media item."""
-        ...
+        raise NotImplementedError
 
     def metadata_write(
         self,
@@ -61,23 +64,23 @@ class DownloadProtocol(Protocol):
         media_stream: Stream,
     ) -> tuple[bool, pathlib.Path | None, pathlib.Path | None]:
         """Write metadata, lyrics, and cover to a media file."""
-        ...
+        raise NotImplementedError
 
     def lyrics_to_file(
         self, dir_destination: pathlib.Path, lyrics: str
     ) -> str:
         """Write lyrics to a temporary file."""
-        ...
+        raise NotImplementedError
 
     @staticmethod
     def cover_data(
         url: str | None = None, path_file: str | None = None
     ) -> str | bytes:
         """Retrieve cover image data from a URL or file."""
-        ...
+        raise NotImplementedError
 
     def cover_to_file(
         self, dir_destination: pathlib.Path, image: bytes
     ) -> str:
         """Write cover image to a temporary file."""
-        ...
+        raise NotImplementedError
