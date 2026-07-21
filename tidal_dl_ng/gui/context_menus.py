@@ -1,16 +1,22 @@
-"""Context menus mixin for MainWindow.
+"""Context-menu actions for the main TIDAL Downloader window.
 
-Handles context menu creation and actions.
+The mixin only coordinates menus and delegates expensive work to the
+application's worker thread.  API clients, queue managers, and history
+services use explicit typed interfaces so failures are caught before the GUI
+is launched.
 """
+
+from __future__ import annotations
 
 import time
 import urllib.parse
-from typing import TYPE_CHECKING, Any, cast
+from functools import partial
+from typing import TYPE_CHECKING, cast
 
 from PySide6 import QtCore, QtGui, QtWidgets
-from requests.exceptions import HTTPError
 from tidalapi.album import Album
 from tidalapi.artist import Artist
+from tidalapi.exceptions import TidalAPIError
 from tidalapi.media import Track, Video
 from tidalapi.mix import Mix
 from tidalapi.playlist import Playlist, UserPlaylist
@@ -18,40 +24,64 @@ from tidalapi.playlist import Playlist, UserPlaylist
 from tidal_dl_ng.constants import QueueDownloadStatus
 from tidal_dl_ng.helper import tidal as tidal_helper
 from tidal_dl_ng.helper.gui import (
+    MediaItem,
     get_results_media_item,
     get_user_list_media_item,
 )
 from tidal_dl_ng.helper.tidal import name_builder_artist
 from tidal_dl_ng.logger import logger_gui
-from tidal_dl_ng.model.gui_data import StatusbarMessage
+from tidal_dl_ng.model.gui_data import QueueDownloadItem, StatusbarMessage
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tidal_dl_ng.config import Settings, Tidal
+    from tidal_dl_ng.gui.playlist import GuiPlaylistManager
+    from tidal_dl_ng.gui.queue import GuiQueueManager
+    from tidal_dl_ng.gui.search import GuiSearchManager
+    from tidal_dl_ng.history import HistoryService
+
+
+type SearchMediaType = type[Track | Video | Album | Artist | Playlist | Mix]
+
+SEARCH_TYPE_MAP: dict[str, SearchMediaType] = {
+    "artist": Artist,
+    "album": Album,
+    "track": Track,
+    "video": Video,
+    "playlist": Playlist,
+}
+
+SESSION_ERRORS: tuple[type[Exception], ...] = (
+    AttributeError,
+    OSError,
+    TidalAPIError,
+    TypeError,
+    ValueError,
+)
 
 
 class ContextMenusMixin:
-    """Mixin containing context menu methods."""
+    """Provide context menus for results, lists, and download queues."""
 
-    # Attributes provided by MainWindow at runtime.
-    tidal: "Tidal"
-    settings: "Settings"
-    s_statusbar_message: Any
+    tidal: Tidal
+    settings: Settings
+    s_statusbar_message: QtCore.SignalInstance
     tr_results: QtWidgets.QTreeView
     tr_queue_download: QtWidgets.QTreeWidget
     tr_lists_user: QtWidgets.QTreeWidget
-    proxy_tr_results: Any
+    proxy_tr_results: QtCore.QSortFilterProxyModel
     model_tr_results: QtGui.QStandardItemModel
-    history_service: Any
-    playlist_manager: Any
-    queue_manager: Any
-    search_manager: Any
+    history_service: HistoryService
+    playlist_manager: GuiPlaylistManager
+    queue_manager: GuiQueueManager
+    search_manager: GuiSearchManager
     cb_search_type: QtWidgets.QComboBox
     l_search: QtWidgets.QLineEdit
 
-    # Methods provided by MainWindow / other mixins.
-    thread_it: Any
-    on_mark_track_as_not_downloaded: Any
-    on_mark_track_as_downloaded: Any
+    thread_it: Callable[[Callable[[str], None], str], None]
+    on_mark_track_as_not_downloaded: Callable[[str, QtCore.QModelIndex], None]
+    on_mark_track_as_downloaded: Callable[[Track, QtCore.QModelIndex], None]
 
     _ALBUM_FETCH_MAX_RETRIES: int = 2
 
@@ -59,234 +89,328 @@ class ContextMenusMixin:
         """Ensure the current TIDAL session is authenticated.
 
         Returns:
-            bool: True when session is valid or recovered, False otherwise.
+            bool: ``True`` when the session is valid or recovered.
         """
         try:
             if self.tidal.session.check_login():
                 return True
-        except Exception:
+        except SESSION_ERRORS:
             logger_gui.warning(
-                "Session check failed. Trying token re-login..."
+                "Session check failed; trying token re-login.",
+                exc_info=True,
             )
 
         try:
             if self.tidal.login_token():
                 logger_gui.info("Session recovered via stored token.")
                 return True
-        except Exception:
+        except SESSION_ERRORS:
             logger_gui.exception("Token-based session recovery failed.")
 
         self.s_statusbar_message.emit(
             StatusbarMessage(
-                message="Session expired - please login again.", timeout=5000
-            )
+                message="Session expired - please login again.",
+                timeout=5000,
+            ),
         )
         return False
 
     def menu_context_tree_results(self, point: QtCore.QPoint) -> None:
-        """Show context menu for results tree."""
-        index = self.tr_results.indexAt(point)
+        """Show actions for the result row under ``point``.
 
+        Args:
+            point (QtCore.QPoint): Position where the context menu was opened.
+
+        Returns:
+            None: The menu is shown synchronously and then destroyed.
+        """
+        index = self.tr_results.indexAt(point)
         if not index.isValid():
             return
 
         media = get_results_media_item(
-            index, self.proxy_tr_results, self.model_tr_results
+            index,
+            self.proxy_tr_results,
+            self.model_tr_results,
         )
+        menu = QtWidgets.QMenu(self.tr_results)
 
-        menu = QtWidgets.QMenu()
-
-        if (
-            isinstance(media, Track | Video)
-            and hasattr(media, "album")
-            and media.album
-        ):
+        if isinstance(media, Track | Video) and media.album:
             menu.addAction(
                 "Download Full Album",
-                lambda: self.thread_download_album_from_track(point),
+                partial(self.thread_download_album_from_track, point),
             )
 
         if isinstance(media, Track):
             track_id = str(media.id)
-            is_downloaded = self.history_service.is_downloaded(track_id)
-
-            if is_downloaded:
+            if self.history_service.is_downloaded(track_id):
                 menu.addAction(
-                    "✖️ Mark as Not Downloaded",
-                    lambda: self.on_mark_track_as_not_downloaded(
-                        track_id, index
+                    "Mark as Not Downloaded",
+                    partial(
+                        self.on_mark_track_as_not_downloaded,
+                        track_id,
+                        index,
                     ),
                 )
             else:
                 menu.addAction(
-                    "✅ Mark as Downloaded",
-                    lambda: self.on_mark_track_as_downloaded(media, index),
+                    "Mark as Downloaded",
+                    partial(
+                        self.on_mark_track_as_downloaded,
+                        media,
+                        index,
+                    ),
                 )
 
         menu.addAction(
             "Copy Share URL",
-            lambda: self.on_copy_url_share(self.tr_results, point),
+            partial(self.on_copy_url_share, self.tr_results, point),
         )
-
         menu.exec(self.tr_results.mapToGlobal(point))
 
     def menu_context_queue_download(self, point: QtCore.QPoint) -> None:
-        """Show context menu for download queue."""
-        item = self.tr_queue_download.itemAt(point)
+        """Show removal actions for a waiting queue item.
 
-        if not item:
+        Args:
+            point (QtCore.QPoint): Position where the context menu was opened.
+
+        Returns:
+            None: No menu is shown when the point has no actionable item.
+        """
+        if (item := self.tr_queue_download.itemAt(point)) is None:
             return
 
-        menu = QtWidgets.QMenu()
-
-        status = item.text(0)
-        if status == QueueDownloadStatus.Waiting:
-            menu.addAction(
-                "🗑️ Remove from Queue",
-                lambda: self.on_queue_download_remove_item(item),
-            )
-
-        if menu.isEmpty():
+        if item.text(0) != QueueDownloadStatus.Waiting:
             return
 
+        menu = QtWidgets.QMenu(self.tr_queue_download)
+        menu.addAction(
+            "Remove from Queue",
+            partial(self.on_queue_download_remove_item, item),
+        )
         menu.exec(self.tr_queue_download.mapToGlobal(point))
 
     def on_queue_download_remove_item(
-        self, item: QtWidgets.QTreeWidgetItem
+        self,
+        item: QtWidgets.QTreeWidgetItem,
     ) -> None:
-        """Remove a specific item from the download queue."""
-        index = self.tr_queue_download.indexOfTopLevelItem(item)
-        if index >= 0:
+        """Remove one top-level waiting item from the download queue.
+
+        Args:
+            item (QtWidgets.QTreeWidgetItem): Queue item to remove.
+
+        Returns:
+            None: The item is removed when it belongs to the queue.
+        """
+        if (index := self.tr_queue_download.indexOfTopLevelItem(item)) >= 0:
             self.tr_queue_download.takeTopLevelItem(index)
-            logger_gui.info("Removed item from download queue")
+            logger_gui.info("Removed item from download queue.")
 
     def on_copy_url_share(
         self,
         tree_target: QtWidgets.QTreeWidget | QtWidgets.QTreeView,
         point: QtCore.QPoint | None = None,
     ) -> None:
-        """Copy the share URL of a media item to the clipboard."""
+        """Copy the selected media item's share URL to the clipboard.
+
+        Args:
+            tree_target (QTreeWidget | QTreeView): Source tree widget.
+            point (QPoint | None): Position of the selected item.
+
+        Returns:
+            None: A status-bar message describes success or missing data.
+        """
         if point is None:
             return
 
-        media: Any
-
+        media: MediaItem
         if isinstance(tree_target, QtWidgets.QTreeWidget):
-            item = tree_target.itemAt(point)
-            if item is None:
+            if (item := tree_target.itemAt(point)) is None:
                 return
             media = get_user_list_media_item(item)
         else:
-            index: QtCore.QModelIndex = tree_target.indexAt(point)
+            index = tree_target.indexAt(point)
             if not index.isValid():
                 return
             media = get_results_media_item(
-                index, self.proxy_tr_results, self.model_tr_results
+                index,
+                self.proxy_tr_results,
+                self.model_tr_results,
             )
 
-        clipboard = QtWidgets.QApplication.clipboard()
-        url_share = (
-            media.share_url
-            if hasattr(media, "share_url") and media.share_url
-            else ""
-        )
-
-        if not url_share:
+        if not (url_share := self._share_url(media)):
             self.s_statusbar_message.emit(
                 StatusbarMessage(
                     message="No share URL available.", timeout=2000
-                )
+                ),
             )
             return
 
+        clipboard = QtWidgets.QApplication.clipboard()
         clipboard.clear()
         clipboard.setText(url_share)
         self.s_statusbar_message.emit(
-            StatusbarMessage(message="Share URL copied.", timeout=1500)
+            StatusbarMessage(message="Share URL copied.", timeout=1500),
         )
+
+    @staticmethod
+    def _share_url(media: MediaItem) -> str:
+        """Return a validated share URL from a supported media object.
+
+        Args:
+            media (MediaItem): Selected TIDAL media object or list label.
+
+        Returns:
+            str: Share URL, or an empty string when unavailable.
+        """
+        share_url = cast("object", getattr(media, "share_url", None))
+        return share_url if isinstance(share_url, str) else ""
 
     def thread_download_list_media(self, point: QtCore.QPoint) -> None:
-        """Start download of a list media item in a thread."""
-        self.thread_it(self.playlist_manager.on_download_list_media, point)
+        """Queue media from the selected list on the GUI thread.
 
-    def thread_download_album_from_track(self, point: QtCore.QPoint) -> None:
-        """Starts the download of the full album from a selected track in a new thread."""
-        self.thread_it(self.on_download_album_from_track, point)
+        Args:
+            point (QtCore.QPoint): Position of the selected list item.
+
+        Returns:
+            None: The manager starts expensive download work separately.
+        """
+        self.playlist_manager.on_download_list_media(point)
+
+    def thread_download_album_from_track(
+        self,
+        point: QtCore.QPoint,
+    ) -> None:
+        """Schedule loading the full album for a selected track.
+
+        Args:
+            point (QtCore.QPoint): Position of the selected result row.
+
+        Returns:
+            None: Album loading is delegated to the worker infrastructure.
+        """
+        if (album_id := self._album_id_at(point)) is not None:
+            self.thread_it(self._download_album_by_id, album_id)
 
     def on_download_album_from_track(self, point: QtCore.QPoint) -> None:
-        """Adds the album associated with a selected track to the download queue."""
-        index: QtCore.QModelIndex = self.tr_results.indexAt(point)
-        media_track = get_results_media_item(
-            index, self.proxy_tr_results, self.model_tr_results
+        """Load a selected track's album and add it to the queue.
+
+        Args:
+            point (QtCore.QPoint): Position of the selected result row.
+
+        Returns:
+            None: Status and logging report success or failure.
+        """
+        if (album_id := self._album_id_at(point)) is not None:
+            self._download_album_by_id(album_id)
+
+    def _album_id_at(self, point: QtCore.QPoint) -> str | None:
+        """Resolve an album ID from a result row on the GUI thread.
+
+        Args:
+            point (QtCore.QPoint): Position of the selected result row.
+
+        Returns:
+            str | None: Normalized TIDAL album ID, if available.
+        """
+        index = self.tr_results.indexAt(point)
+        if not index.isValid():
+            return None
+
+        media = get_results_media_item(
+            index,
+            self.proxy_tr_results,
+            self.model_tr_results,
         )
-
-        if (
-            isinstance(media_track, Track)
-            and media_track.album
-            and media_track.album.id
-        ):
-            try:
-                if not self._ensure_session_valid():
-                    return
-
-                full_album_object = self.tidal.session.album(
-                    str(media_track.album.id)
-                )
-
-                queue_dl_item = (
-                    self.queue_manager.media_to_queue_download_model(
-                        full_album_object
-                    )
-                )
-
-                if queue_dl_item:
-                    self.queue_manager.queue_download_media(queue_dl_item)
-                else:
-                    logger_gui.warning(
-                        f"Failed to create a queue item for album ID: {full_album_object.id}"
-                    )
-            except Exception:
-                logger_gui.exception(
-                    "Could not fetch the full album from TIDAL."
-                )
-        else:
+        if not isinstance(media, Track) or media.album is None:
             logger_gui.warning(
                 "Could not retrieve album information from the selected track."
             )
+            return None
+
+        album_id = media.album.id
+        if not isinstance(album_id, int | str) or not album_id:
+            logger_gui.warning("The selected track has no valid album ID.")
+            return None
+
+        return str(album_id)
+
+    def _download_album_by_id(self, album_id: str) -> None:
+        """Load one album in a worker and schedule its GUI queue insertion.
+
+        Args:
+            album_id (str): Normalized TIDAL album identifier.
+
+        Returns:
+            None: The queue update is posted back to the Qt GUI thread.
+        """
+        try:
+            if not self._ensure_session_valid():
+                return
+
+            album = self.tidal.session.album(album_id)
+            queue_item = self.queue_manager.media_to_queue_download_model(
+                album,
+            )
+            if queue_item is None:
+                logger_gui.warning(
+                    "Failed to create a queue item for album ID %s.",
+                    album_id,
+                )
+                return
+            self._enqueue_item_on_gui_thread(queue_item)
+        except SESSION_ERRORS:
+            logger_gui.exception("Could not fetch the full album from TIDAL.")
+
+    def _enqueue_item_on_gui_thread(
+        self,
+        queue_item: QueueDownloadItem,
+    ) -> None:
+        """Post one queue insertion to the queue widget's Qt thread.
+
+        Args:
+            queue_item (QueueDownloadItem): Prepared download queue entry.
+
+        Returns:
+            None: Qt invokes the queue manager asynchronously.
+        """
+        QtCore.QTimer.singleShot(
+            0,
+            self.tr_queue_download,
+            partial(self.queue_manager.queue_download_media, queue_item),
+        )
 
     def on_download_all_albums_from_playlist(
-        self, point: QtCore.QPoint
+        self,
+        point: QtCore.QPoint,
     ) -> None:
-        """Download all unique albums from tracks in a playlist."""
+        """Fetch every unique album in a playlist or mix and queue it.
+
+        Args:
+            point (QtCore.QPoint): Position of the selected list item.
+
+        Returns:
+            None: Progress and failures are reported through the logger/status
+                bar.
+        """
         try:
-            item = self.tr_lists_user.itemAt(point)
-            if item is None:
+            if (item := self.tr_lists_user.itemAt(point)) is None:
                 logger_gui.error("Please select a playlist or mix.")
                 return
 
             media_list = get_user_list_media_item(item)
-
-            if not isinstance(media_list, Playlist | UserPlaylist | Mix):
+            if not isinstance(media_list, Playlist | Mix):
                 logger_gui.error("Please select a playlist or mix.")
                 return
 
-            list_name = str(
-                getattr(
-                    media_list,
-                    "name",
-                    getattr(media_list, "title", "Unknown list"),
-                )
+            list_name = self._media_list_name(media_list)
+            logger_gui.info("Fetching all tracks from: %s", list_name)
+            if not self._ensure_session_valid():
+                return
+            media_items = tidal_helper.items_results_all(
+                self.tidal.session,
+                media_list,
             )
-            logger_gui.info(f"Fetching all tracks from: {list_name}")
-            tidal_helper_any = cast(Any, tidal_helper)
-            media_items = cast(
-                list[Any],
-                tidal_helper_any.items_results_all(
-                    self.tidal.session,
-                    media_list,
-                ),
-            )
-
             album_ids = self._extract_album_ids_from_tracks(media_items)
 
             if not album_ids:
@@ -294,126 +418,141 @@ class ContextMenusMixin:
                 return
 
             logger_gui.info(
-                f"Found {len(album_ids)} unique albums. Loading with rate limiting..."
+                "Found %s unique albums. Loading with rate limiting.",
+                len(album_ids),
             )
-
-            albums_dict = self._load_albums_with_rate_limiting(album_ids)
-
-            if not albums_dict:
+            if not (albums := self._load_albums_with_rate_limiting(album_ids)):
                 logger_gui.error("Failed to load any albums from playlist.")
                 return
 
-            self._queue_loaded_albums(albums_dict)
-
-            message = f"Added {len(albums_dict)} albums to download queue"
+            self._queue_loaded_albums(albums)
+            message = f"Added {len(albums)} albums to download queue"
             self.s_statusbar_message.emit(
-                StatusbarMessage(message=message, timeout=3000)
+                StatusbarMessage(message=message, timeout=3000),
             )
             logger_gui.info(message)
-
-        except Exception as e:
-            error_msg = f"Error downloading albums from playlist: {e!s}"
-            logger_gui.error(error_msg)
+        except SESSION_ERRORS as error:
+            error_message = f"Error downloading albums from playlist: {error}"
+            logger_gui.exception(error_message)
             self.s_statusbar_message.emit(
-                StatusbarMessage(message=error_msg, timeout=3000)
+                StatusbarMessage(message=error_message, timeout=3000),
             )
 
-    def _extract_album_ids_from_tracks(
-        self, media_items: list[Any]
-    ) -> dict[int, Album]:
-        """Extract unique album IDs from a list of media items."""
-        album_ids: dict[int, Album] = {}
+    @staticmethod
+    def _media_list_name(media_list: Playlist | UserPlaylist | Mix) -> str:
+        """Return a display name for a playlist or mix.
 
+        Args:
+            media_list (Playlist | UserPlaylist | Mix): Media list object.
+
+        Returns:
+            str: Human-readable list name with a safe fallback.
+        """
+        if isinstance(media_list, Mix):
+            return media_list.title or "Unknown list"
+        return media_list.name or "Unknown list"
+
+    def _extract_album_ids_from_tracks(
+        self,
+        media_items: list[object],
+    ) -> dict[str, Album]:
+        """Extract unique album objects from track and video results.
+
+        Args:
+            media_items (list[object]): Items returned by a TIDAL list.
+
+        Returns:
+            dict[str, Album]: Unique albums keyed by normalized TIDAL ID.
+        """
+        album_ids: dict[str, Album] = {}
         for media_item in media_items:
             if not isinstance(media_item, Track | Video):
                 continue
-
-            if not hasattr(media_item, "album") or not media_item.album:
+            if (album := media_item.album) is None:
                 continue
-
-            try:
-                album_id = media_item.album.id
-                if album_id:
-                    album_ids[album_id] = media_item.album
-            except Exception as e:
-                logger_gui.debug(
-                    f"Skipping track with unavailable album: {e!s}"
-                )
-                continue
-
+            album_id = album.id
+            if isinstance(album_id, int | str) and album_id:
+                album_ids[str(album_id)] = album
         return album_ids
 
     def _load_albums_with_rate_limiting(
-        self, album_ids: dict[int, Album]
-    ) -> dict[int, Album]:
-        """Load full album objects with rate limiting to prevent API throttling."""
-        albums_dict: dict[int, Album] = {}
-        batch_size = int(
-            getattr(self.settings.data, "api_rate_limit_batch_size", 20)
-        )
-        delay_sec = float(
-            getattr(self.settings.data, "api_rate_limit_delay_sec", 3.0)
-        )
+        self,
+        album_ids: dict[str, Album],
+    ) -> dict[str, Album]:
+        """Load albums with configurable batching and retry behavior.
 
-        if batch_size <= 0:
-            batch_size = 20
+        Args:
+            album_ids (dict[str, Album]): Album objects keyed by TIDAL ID.
 
-        for idx, album_id in enumerate(album_ids.keys(), start=1):
+        Returns:
+            dict[str, Album]: Albums successfully loaded from TIDAL.
+        """
+        albums: dict[str, Album] = {}
+        batch_size = max(self.settings.data.api_rate_limit_batch_size, 1)
+        delay_sec = max(self.settings.data.api_rate_limit_delay_sec, 0.0)
+        if not self._ensure_session_valid():
+            return albums
+
+        for index, album_id in enumerate(album_ids, start=1):
+            if index > 1 and (index - 1) % batch_size == 0:
+                logger_gui.info(
+                    "Rate limiting after %s albums; pausing for %s seconds.",
+                    index - 1,
+                    delay_sec,
+                )
+                time.sleep(delay_sec)
+
             for attempt in range(1, self._ALBUM_FETCH_MAX_RETRIES + 1):
                 try:
-                    if idx > 1 and (idx - 1) % batch_size == 0:
-                        logger_gui.info(
-                            f"⏰ RATE LIMITING: Processed {idx - 1} albums, pausing for {delay_sec} seconds..."
-                        )
-                        time.sleep(delay_sec)
-
-                    if not self._ensure_session_valid():
-                        return albums_dict
-
-                    album = self.tidal.session.album(str(album_id))
-                    album_obj_id = getattr(album, "id", None)
-                    album_key = (
-                        album_obj_id
-                        if isinstance(album_obj_id, int)
-                        else album_id
-                    )
-                    albums_dict[album_key] = album
+                    album = self.tidal.session.album(album_id)
+                    albums[album_id] = album
                     logger_gui.debug(
-                        f"Loaded album {idx}/{len(album_ids)}: {name_builder_artist(album)} - {album.name}"
+                        "Loaded album %s/%s: %s - %s",
+                        index,
+                        len(album_ids),
+                        name_builder_artist(album),
+                        album.name,
                     )
                     break
+                except SESSION_ERRORS as error:
+                    if not self._handle_album_load_error(error, album_id):
+                        return albums
 
-                except Exception as e:
-                    can_continue = self._handle_album_load_error(e, album_id)
-                    is_last_attempt = attempt >= self._ALBUM_FETCH_MAX_RETRIES
-
-                    if not can_continue:
-                        return albums_dict
-
-                    if is_last_attempt:
+                    if attempt >= self._ALBUM_FETCH_MAX_RETRIES:
                         logger_gui.warning(
-                            f"Skipping album {album_id} after {attempt} failed attempt(s)."
+                            "Skipping album %s after %s failed attempt(s).",
+                            album_id,
+                            attempt,
                         )
                         break
 
                     logger_gui.info(
-                        f"Retrying album {album_id} "
-                        f"(attempt {attempt + 1}/{self._ALBUM_FETCH_MAX_RETRIES})..."
+                        "Retrying album %s (attempt %s/%s).",
+                        album_id,
+                        attempt + 1,
+                        self._ALBUM_FETCH_MAX_RETRIES,
                     )
                     time.sleep(1)
 
-        logger_gui.info(f"Successfully loaded {len(albums_dict)} albums.")
-        return albums_dict
+        logger_gui.info("Successfully loaded %s albums.", len(albums))
+        return albums
 
     def _handle_album_load_error(
-        self, error: Exception, album_id: int
+        self,
+        error: Exception,
+        album_id: str,
     ) -> bool:
-        """Handle errors that occur when loading an album."""
-        if self.tidal.is_authentication_error(error) or isinstance(
-            error, HTTPError
-        ):
-            error_msg = str(error)
-            logger_gui.error(f"Authentication error: {error_msg}")
+        """Handle one album load error and decide whether to continue.
+
+        Args:
+            error (Exception): Error raised while loading an album.
+            album_id (str): TIDAL album identifier being loaded.
+
+        Returns:
+            bool: ``True`` to retry/continue, ``False`` to stop processing.
+        """
+        if self._is_authentication_error(error):
+            logger_gui.error("Authentication error: %s", error)
             if self._ensure_session_valid():
                 logger_gui.info(
                     "Session recovered after authentication error."
@@ -421,90 +560,132 @@ class ContextMenusMixin:
                 return True
 
             logger_gui.error(
-                "Your session has expired. Please restart the application and login again."
+                "Your session has expired. Please restart the application "
+                "and login again.",
             )
             self.s_statusbar_message.emit(
                 StatusbarMessage(
-                    message="Session expired - please restart and login",
+                    message="Session expired - please restart and login.",
                     timeout=5000,
-                )
+                ),
             )
             return False
 
-        logger_gui.warning(f"Failed to load album {album_id}: {error!s}")
+        logger_gui.warning("Failed to load album %s: %s", album_id, error)
         logger_gui.info(
-            "Note: Some albums may be unavailable due to region restrictions or removal from TIDAL. This is normal."
+            "Some albums may be unavailable because of region restrictions "
+            "or removal from TIDAL.",
         )
         return True
 
-    def _queue_loaded_albums(self, albums_dict: dict[int, Album]) -> None:
-        """Prepare and add loaded albums to the download queue."""
-        logger_gui.info(
-            f"Preparing queue items for {len(albums_dict)} albums..."
+    @staticmethod
+    def _is_authentication_error(error: Exception) -> bool:
+        """Identify common authentication failures without a Tidal helper.
+
+        Args:
+            error (Exception): Error raised by the TIDAL client or requests.
+
+        Returns:
+            bool: ``True`` when the message indicates expired credentials.
+        """
+        error_text = str(error).lower()
+        return any(
+            marker in error_text
+            for marker in ("401", "oauth", "token", "unauthorized")
         )
 
-        queue_items: list[tuple[Any, Album]] = []
-        for album in albums_dict.values():
-            queue_dl_item = self.queue_manager.media_to_queue_download_model(
-                album
+    def _queue_loaded_albums(self, albums: dict[str, Album]) -> None:
+        """Convert loaded albums to queue items and enqueue them.
+
+        Args:
+            albums (dict[str, Album]): Albums to prepare and enqueue.
+
+        Returns:
+            None: Queue manager receives every successfully converted album.
+        """
+        logger_gui.info("Preparing queue items for %s albums.", len(albums))
+        queue_items: list[tuple[QueueDownloadItem, Album]] = []
+        for album in albums.values():
+            queue_item = self.queue_manager.media_to_queue_download_model(
+                album,
             )
-            if queue_dl_item:
-                queue_items.append((queue_dl_item, album))
+            if queue_item is not None:
+                queue_items.append((queue_item, album))
                 logger_gui.debug(
-                    f"Prepared: {name_builder_artist(album)} - {album.name}"
+                    "Prepared: %s - %s",
+                    name_builder_artist(album),
+                    album.name,
                 )
 
-        logger_gui.info(f"Adding {len(queue_items)} albums to queue...")
-        for queue_dl_item, album in queue_items:
-            self.queue_manager.queue_download_media(queue_dl_item)
+        logger_gui.info("Adding %s albums to queue.", len(queue_items))
+        for queue_item, album in queue_items:
+            self._enqueue_item_on_gui_thread(queue_item)
             logger_gui.info(
-                f"Added: {name_builder_artist(album)} - {album.name}"
+                "Added: %s - %s",
+                name_builder_artist(album),
+                album.name,
             )
 
     def on_search_in_app(self, search_term: str, search_type: str) -> None:
-        """Perform a search within the application, selecting the correct category."""
+        """Schedule a search using the selected in-app media category.
+
+        Args:
+            search_term (str): Text or TIDAL URL to search.
+            search_type (str): Category name from the search menu.
+
+        Returns:
+            None: Search manager performs the request asynchronously.
+        """
         self.l_search.setText(search_term)
-
-        search_type_map: dict[str, type[Any]] = {
-            "artist": Artist,
-            "album": Album,
-            "track": Track,
-            "video": Video,
-            "playlist": Playlist,
-        }
-        search_category = search_type_map.get(search_type.lower())
-
+        search_category = SEARCH_TYPE_MAP.get(search_type.casefold())
         if search_category is None:
-            search_category = cast(
-                type[Any], self.cb_search_type.currentData()
+            current_data = cast("object", self.cb_search_type.currentData())
+            search_category = next(
+                (
+                    media_type
+                    for media_type in SEARCH_TYPE_MAP.values()
+                    if current_data is media_type
+                ),
+                None,
             )
 
-        for i in range(self.cb_search_type.count()):
-            if self.cb_search_type.itemData(i) == search_category:
-                self.cb_search_type.setCurrentIndex(i)
-                break
+        if search_category is not None:
+            for index in range(self.cb_search_type.count()):
+                item_data = cast("object", self.cb_search_type.itemData(index))
+                if item_data is search_category:
+                    self.cb_search_type.setCurrentIndex(index)
+                    break
 
         self.search_manager.search_populate_results(
-            search_term, search_category
+            search_term,
+            search_category,
         )
 
     def on_search_in_browser(self, search_term: str, search_type: str) -> None:
-        """Open a search in the default web browser."""
+        """Open a URL for the requested media category in the browser.
+
+        Args:
+            search_term (str): Text to URL-encode into the query.
+            search_type (str): Category name from the search menu.
+
+        Returns:
+            None: Qt delegates opening the URL to the default browser.
+        """
         safe_term = urllib.parse.quote(search_term)
-        search_path_map = {
+        search_path_map: dict[str, str] = {
             "artist": "artists",
             "album": "albums",
             "track": "tracks",
             "video": "videos",
             "playlist": "playlists",
         }
-        search_path = search_path_map.get(search_type.lower())
-
-        if search_path:
+        if search_path := search_path_map.get(search_type.casefold()):
             url = QtCore.QUrl(
-                f"https://listen.tidal.com/search/{search_path}?q={safe_term}"
+                f"https://listen.tidal.com/search/{search_path}?q={safe_term}",
             )
         else:
-            url = QtCore.QUrl(f"https://listen.tidal.com/search?q={safe_term}")
+            url = QtCore.QUrl(
+                f"https://listen.tidal.com/search?q={safe_term}",
+            )
 
         QtGui.QDesktopServices.openUrl(url)

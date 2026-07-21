@@ -1,353 +1,464 @@
-"""Downloads mixin for MainWindow.
+"""Download orchestration shared by the main application window.
 
-Handles download queue and download operations.
+The queue manager owns queue state and widget updates.  This mixin converts
+selected result rows into queue entries and provides the worker-safe service
+methods that translate GUI download requests into downloader request models.
 """
 
 from __future__ import annotations
 
-import time
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, TypeGuard
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi.album import Album
 from tidalapi.artist import Artist
+from tidalapi.exceptions import TidalAPIError
 from tidalapi.media import Quality, Track, Video
 from tidalapi.mix import Mix
 from tidalapi.playlist import Playlist, UserPlaylist
 
 from tidal_dl_ng.config import HandlingApp
 from tidal_dl_ng.constants import QualityVideo, QueueDownloadStatus
-from tidal_dl_ng.download import Download
-from tidal_dl_ng.helper import path as path_helper
-from tidal_dl_ng.helper import tidal as tidal_helper
-from tidal_dl_ng.helper.gui import (
-    get_queue_download_media,
-    get_queue_download_quality_audio,
-    get_queue_download_quality_video,
-    get_results_media_item,
-    set_queue_download_media,
-)
+from tidal_dl_ng.helper.gui import get_results_media_item
+from tidal_dl_ng.helper.path import get_format_template
+from tidal_dl_ng.helper.tidal import items_results_all
 from tidal_dl_ng.logger import logger_gui
+from tidal_dl_ng.model.downloader import ItemRequest
 from tidal_dl_ng.model.gui_data import QueueDownloadItem, StatusbarMessage
 
 if TYPE_CHECKING:
     from tidal_dl_ng.config import Settings, Tidal
+    from tidal_dl_ng.download import Download
+    from tidal_dl_ng.gui.queue import GuiQueueManager
+
+
+type DownloadableMedia = Track | Video | Album | Playlist | UserPlaylist | Mix
+type QueueableMedia = DownloadableMedia | Artist
+
+SESSION_ERRORS = (
+    TidalAPIError,
+    AttributeError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+)
+
+DOWNLOAD_ERRORS = SESSION_ERRORS
+
+
+def _is_downloadable(media: object) -> TypeGuard[DownloadableMedia]:
+    """Return whether an object is accepted by the downloader.
+
+    Args:
+        media (object): Candidate object returned by TIDAL.
+
+    Returns:
+        TypeGuard[DownloadableMedia]: Whether the object is downloadable.
+    """
+    return isinstance(media, (Track, Video, Album, Playlist, Mix))
+
+
+def _is_queueable(media: object) -> TypeGuard[QueueableMedia]:
+    """Return whether an object can be added to the GUI queue.
+
+    Args:
+        media (object): Candidate object from a results model.
+
+    Returns:
+        TypeGuard[QueueableMedia]: Whether the object is queueable.
+    """
+    return _is_downloadable(media) or isinstance(media, Artist)
 
 
 class DownloadsMixin:
-    """Mixin containing download-related methods."""
+    """Provide result-to-queue and download services to ``MainWindow``."""
 
-    # Attributes provided by MainWindow runtime composition.
     tr_results: QtWidgets.QTreeView
-    tr_queue_download: QtWidgets.QTreeWidget
-    proxy_tr_results: Any
-    model_tr_results: Any
-    search_manager: Any
+    proxy_tr_results: QtCore.QSortFilterProxyModel
+    model_tr_results: QtGui.QStandardItemModel
+    queue_manager: GuiQueueManager
     tidal: Tidal
     settings: Settings
     dl: Download
-    s_queue_download_item_downloading: Any
-    s_queue_download_item_finished: Any
-    s_queue_download_item_failed: Any
-    s_queue_download_item_skipped: Any
-    s_pb_reset: Any
-    s_statusbar_message: Any
+    s_queue_download_item_downloading: QtCore.SignalInstance
+    s_queue_download_item_finished: QtCore.SignalInstance
+    s_queue_download_item_failed: QtCore.SignalInstance
+    s_queue_download_item_skipped: QtCore.SignalInstance
+    s_pb_reset: QtCore.SignalInstance
+    s_statusbar_message: QtCore.SignalInstance
 
     @staticmethod
     def _ensure_tidal_session(tidal: Tidal) -> bool:
-        """Ensure TIDAL session is authenticated before API operations."""
+        """Ensure that the TIDAL session is authenticated.
+
+        Args:
+            tidal (Tidal): Application TIDAL configuration and session.
+
+        Returns:
+            bool: ``True`` when the existing or recovered session is valid.
+        """
         try:
             if tidal.session.check_login():
                 return True
-        except Exception:
+        except SESSION_ERRORS:
             logger_gui.warning(
-                "TIDAL session check failed. Attempting token recovery..."
+                "TIDAL session check failed; attempting token recovery.",
+                exc_info=True,
             )
 
-        with_error = False
         try:
-            if tidal.login_token():
-                logger_gui.info("TIDAL session recovered via stored token.")
-                return True
-        except Exception:
-            with_error = True
+            recovered: bool = tidal.login_token()
+        except SESSION_ERRORS:
+            logger_gui.exception(
+                "Failed to recover the TIDAL session from the stored token."
+            )
+            return False
 
-        if with_error:
-            logger_gui.exception("Failed to recover TIDAL session via token.")
-
-        return False
-
-    def _get_settings_flags(self) -> tuple[bool, bool]:
-        """Safely resolve download-related settings flags."""
-        settings_data = cast(Any, self.settings.data)
-        video_download = bool(getattr(settings_data, "video_download", True))
-        download_delay = bool(getattr(settings_data, "download_delay", False))
-        return video_download, download_delay
+        if recovered:
+            logger_gui.info("Recovered the TIDAL session from its token.")
+        return recovered
 
     @staticmethod
     def _resolve_source_info(
-        media: Track | Album | Playlist | UserPlaylist | Video | Mix,
+        media: DownloadableMedia,
     ) -> tuple[str, str | None, str | None]:
-        """Resolve source metadata used for history and tracking."""
-        source_type = "manual"
-        source_id: str | None = None
-        source_name: str | None = None
+        """Build history provenance for a media object.
 
+        Args:
+            media (DownloadableMedia): Media being downloaded.
+
+        Returns:
+            tuple[str, str | None, str | None]: Source type, identifier,
+                and display name.
+        """
         if isinstance(media, Album):
-            source_type = "album"
-            source_id = str(media.id)
-            source_name = media.name
-        elif isinstance(media, Playlist | UserPlaylist):
-            source_type = "playlist"
-            source_id = str(media.id) if hasattr(media, "id") else None
-            source_name = media.name if hasattr(media, "name") else None
-        elif isinstance(media, Mix):
-            source_type = "mix"
-            source_id = str(media.id)
-            source_name = media.title
-        elif isinstance(media, Track):
-            if hasattr(media, "album") and media.album:
-                source_type = "album"
-                source_id = str(media.album.id)
-                source_name = media.album.name
-            else:
-                source_type = "track"
-                source_id = str(media.id)
-                source_name = media.name
+            return "album", str(media.id), media.name
 
-        return source_type, source_id, source_name
+        if isinstance(media, Playlist):
+            return "playlist", str(media.id), media.name
+
+        if isinstance(media, Mix):
+            return "mix", str(media.id), media.title
+
+        if isinstance(media, Track):
+            if (album := media.album) is not None:
+                return "album", str(album.id), album.name
+            return "track", str(media.id), media.name
+
+        return "video", str(media.id), media.name
 
     def on_download_results(self) -> None:
-        """Download the selected results in the results tree."""
-        items = self.tr_results.selectionModel().selectedRows()
+        """Add every selected results row to the download queue.
 
-        if len(items) == 0:
-            logger_gui.error("Please select a row first.")
-        else:
-            for item in items:
-                media = get_results_media_item(
-                    item, self.proxy_tr_results, self.model_tr_results
-                )
-                queue_dl_item = (
-                    self.search_manager.media_to_queue_download_model(media)
-                )
+        This slot may still be called through the legacy worker helper.  When
+        that happens, it reschedules itself on the results view's GUI thread
+        before reading selection or model data.
+        """
+        if QtCore.QThread.currentThread() != self.tr_results.thread():
+            QtCore.QTimer.singleShot(
+                0,
+                self.tr_results,
+                self.on_download_results,
+            )
+            return
 
-                if queue_dl_item:
-                    self.queue_download_media(queue_dl_item)
-
-    def queue_download_media(self, queue_dl_item: QueueDownloadItem) -> None:
-        """Add a media item to the download queue."""
-        child: QtWidgets.QTreeWidgetItem = QtWidgets.QTreeWidgetItem()
-
-        child.setText(0, queue_dl_item.status)
-        set_queue_download_media(
-            child,
-            cast(
-                Track | Album | Playlist | UserPlaylist | Video | Mix | Artist,
-                queue_dl_item.obj,
-            ),
+        selected_rows: list[QtCore.QModelIndex] = (
+            self.tr_results.selectionModel().selectedRows()
         )
-        child.setText(2, queue_dl_item.name)
-        child.setText(3, queue_dl_item.type_media)
-        child.setText(4, str(queue_dl_item.quality_audio))
-        child.setText(5, str(queue_dl_item.quality_video))
-        self.tr_queue_download.addTopLevelItem(child)
+        if not selected_rows:
+            logger_gui.error("Please select at least one result first.")
+            self.s_statusbar_message.emit(
+                StatusbarMessage(
+                    message="Select at least one result to download.",
+                    timeout=3000,
+                )
+            )
+            return
+
+        queued_count: int = 0
+        for index in selected_rows:
+            media = get_results_media_item(
+                index,
+                self.proxy_tr_results,
+                self.model_tr_results,
+            )
+            if not _is_queueable(media):
+                log_message: str = (
+                    f"Cannot queue unsupported result type "
+                    f"'{type(media).__name__}'."
+                )
+                logger_gui.warning(log_message)
+                continue
+
+            queue_item: QueueDownloadItem | None = (
+                self.queue_manager.media_to_queue_download_model(media)
+            )
+            if queue_item is None:
+                log_message = (
+                    f"Result '{type(media).__name__}' is unavailable and "
+                    "was not queued."
+                )
+                logger_gui.warning(log_message)
+                continue
+
+            self.queue_download_media(queue_item)
+            queued_count += 1
+
+        self._report_queued_results(queued_count)
+
+    def _report_queued_results(self, queued_count: int) -> None:
+        """Report how many selected rows entered the queue.
+
+        Args:
+            queued_count (int): Number of newly queued rows.
+        """
+        if queued_count == 0:
+            message: str = "No downloadable results were added to the queue."
+        elif queued_count == 1:
+            message = "Added one result to the download queue."
+        else:
+            message = f"Added {queued_count} results to the download queue."
+
+        self.s_statusbar_message.emit(
+            StatusbarMessage(message=message, timeout=3000)
+        )
+
+    def queue_download_media(self, queue_item: QueueDownloadItem) -> None:
+        """Add a prepared item through the central queue manager.
+
+        Args:
+            queue_item (QueueDownloadItem): Prepared queue entry.
+        """
+        self.queue_manager.queue_download_media(queue_item)
 
     def watcher_queue_download(self) -> None:
-        """Monitor the download queue and process items as they become available."""
-        handling_app = cast(Any, HandlingApp)()
+        """Start the queue manager's compatibility watcher entry point.
 
-        while not handling_app.event_abort.is_set():
-            items = self.tr_queue_download.findItems(
-                QueueDownloadStatus.Waiting,
-                QtCore.Qt.MatchFlag.MatchExactly,
-                column=0,
-            )
-
-            if len(items) > 0:
-                item: QtWidgets.QTreeWidgetItem = items[0]
-                media = get_queue_download_media(item)
-                quality_audio: Quality = get_queue_download_quality_audio(item)
-                quality_video: QualityVideo = get_queue_download_quality_video(
-                    item
-                )
-
-                try:
-                    if not self._ensure_tidal_session(self.tidal):
-                        self.s_statusbar_message.emit(
-                            StatusbarMessage(
-                                message="Session expired - please login again.",
-                                timeout=5000,
-                            )
-                        )
-                        self.s_queue_download_item_failed.emit(item)
-                        continue
-
-                    self.s_queue_download_item_downloading.emit(item)
-                    result = self.on_queue_download(
-                        media,
-                        quality_audio=quality_audio,
-                        quality_video=quality_video,
-                    )
-
-                    if result == QueueDownloadStatus.Finished:
-                        self.s_queue_download_item_finished.emit(item)
-                    elif result == QueueDownloadStatus.Skipped:
-                        self.s_queue_download_item_skipped.emit(item)
-                except Exception as e:
-                    logger_gui.error(e)
-                    self.s_queue_download_item_failed.emit(item)
-            else:
-                time.sleep(2)
+        The queue manager now processes work from queue events.  Delegating
+        keeps old startup integrations valid without introducing polling.
+        """
+        self.queue_manager.watcher_queue_download()
 
     def on_queue_download_item_downloading(
-        self, item: QtWidgets.QTreeWidgetItem
+        self,
+        item: QtWidgets.QTreeWidgetItem,
     ) -> None:
-        """Update the status of a queue download item to 'Downloading'."""
-        self.queue_download_item_status(item, QueueDownloadStatus.Downloading)
+        """Mark a queue item as downloading on the GUI thread.
+
+        Args:
+            item (QTreeWidgetItem): Queue row to update.
+        """
+        self.queue_manager.on_queue_download_item_downloading(item)
 
     def on_queue_download_item_finished(
-        self, item: QtWidgets.QTreeWidgetItem
+        self,
+        item: QtWidgets.QTreeWidgetItem,
     ) -> None:
-        """Update the status of a queue download item to 'Finished'."""
-        self.queue_download_item_status(item, QueueDownloadStatus.Finished)
+        """Mark a queue item as finished on the GUI thread.
+
+        Args:
+            item (QTreeWidgetItem): Queue row to update.
+        """
+        self.queue_manager.on_queue_download_item_finished(item)
 
     def on_queue_download_item_failed(
-        self, item: QtWidgets.QTreeWidgetItem
+        self,
+        item: QtWidgets.QTreeWidgetItem,
     ) -> None:
-        """Update the status of a queue download item to 'Failed'."""
-        self.queue_download_item_status(item, QueueDownloadStatus.Failed)
+        """Mark a queue item as failed on the GUI thread.
+
+        Args:
+            item (QTreeWidgetItem): Queue row to update.
+        """
+        self.queue_manager.on_queue_download_item_failed(item)
 
     def on_queue_download_item_skipped(
-        self, item: QtWidgets.QTreeWidgetItem
+        self,
+        item: QtWidgets.QTreeWidgetItem,
     ) -> None:
-        """Update the status of a queue download item to 'Skipped'."""
-        self.queue_download_item_status(item, QueueDownloadStatus.Skipped)
+        """Mark a queue item as skipped on the GUI thread.
+
+        Args:
+            item (QTreeWidgetItem): Queue row to update.
+        """
+        self.queue_manager.on_queue_download_item_skipped(item)
 
     def queue_download_item_status(
-        self, item: QtWidgets.QTreeWidgetItem, status: str
+        self,
+        item: QtWidgets.QTreeWidgetItem,
+        status: str,
     ) -> None:
-        """Set the status text of a queue download item."""
-        item.setText(0, status)
+        """Set a queue item's status through the queue manager.
+
+        Args:
+            item (QTreeWidgetItem): Queue row to update.
+            status (str): New queue status label.
+        """
+        self.queue_manager.queue_download_item_status(item, status)
 
     def on_queue_download(
         self,
-        media: Track | Album | Playlist | Video | Mix | Artist,
+        media: QueueableMedia,
         quality_audio: Quality | None = None,
         quality_video: QualityVideo | None = None,
     ) -> QueueDownloadStatus:
-        """Download the specified media item(s) and return the result status."""
-        result: QueueDownloadStatus = QueueDownloadStatus.Skipped
+        """Download queued media and return its aggregate status.
 
-        helper_any = cast(Any, tidal_helper)
-        items_media: list[Track | Album | Playlist | Video | Mix | Artist]
-        if isinstance(media, Artist):
-            items_media = cast(
-                list[Track | Album | Playlist | Video | Mix | Artist],
-                helper_any.items_results_all(self.tidal.session, media),
+        Args:
+            media (QueueableMedia): Media or artist queued for download.
+            quality_audio (Quality | None): Requested audio quality.
+            quality_video (QualityVideo | None): Requested video quality.
+
+        Returns:
+            QueueDownloadStatus: Aggregate result for all resolved media.
+        """
+        if not self._ensure_tidal_session(self.tidal):
+            self.s_statusbar_message.emit(
+                StatusbarMessage(
+                    message="Session expired; please sign in again.",
+                    timeout=5000,
+                )
             )
+            return QueueDownloadStatus.Failed
+
+        resolved_items: list[object]
+        if isinstance(media, Artist):
+            resolved_items = items_results_all(self.tidal.session, media)
         else:
-            items_media = [media]
+            resolved_items = [media]
 
-        if not items_media:
-            return QueueDownloadStatus.Skipped
+        handling_app = HandlingApp()
+        results: list[QueueDownloadStatus] = []
+        for resolved_item in resolved_items:
+            if handling_app.event_abort.is_set():
+                logger_gui.info("Download queue processing was cancelled.")
+                break
 
-        _video_download, download_delay_setting = self._get_settings_flags()
-        download_delay: bool = bool(
-            isinstance(media, Track | Video) and download_delay_setting
-        )
+            if not _is_downloadable(resolved_item):
+                log_message = (
+                    f"Ignoring unsupported artist result "
+                    f"'{type(resolved_item).__name__}'."
+                )
+                logger_gui.warning(log_message)
+                continue
 
-        for item_media in items_media:
-            result = self.download(
-                item_media,
+            delay_track: bool = bool(
+                isinstance(resolved_item, Track | Video)
+                and self.settings.data.download_delay
+            )
+            result: QueueDownloadStatus = self.download(
+                resolved_item,
                 self.dl,
-                delay_track=download_delay,
+                delay_track=delay_track,
                 quality_audio=quality_audio,
                 quality_video=quality_video,
             )
+            results.append(result)
 
-        return result
+        return self._aggregate_download_results(results)
+
+    @staticmethod
+    def _aggregate_download_results(
+        results: list[QueueDownloadStatus],
+    ) -> QueueDownloadStatus:
+        """Combine item results into one queue status.
+
+        Args:
+            results (list[QueueDownloadStatus]): Individual item results.
+
+        Returns:
+            QueueDownloadStatus: Failed if any item failed, finished if at
+                least one completed, otherwise skipped.
+        """
+        if QueueDownloadStatus.Failed in results:
+            return QueueDownloadStatus.Failed
+        if QueueDownloadStatus.Finished in results:
+            return QueueDownloadStatus.Finished
+        return QueueDownloadStatus.Skipped
 
     def download(
         self,
-        media: Track | Album | Playlist | UserPlaylist | Video | Mix | Artist,
-        dl: Download,
+        media: DownloadableMedia,
+        downloader: Download,
         delay_track: bool = False,
         quality_audio: Quality | None = None,
         quality_video: QualityVideo | None = None,
     ) -> QueueDownloadStatus:
-        """Download a media item and return the result status."""
-        result_dl: bool = False
-        path_file: str | Any = ""
-        result: QueueDownloadStatus
+        """Download one item or collection through the request-object API.
+
+        Args:
+            media (DownloadableMedia): Item or collection to download.
+            downloader (Download): Configured downloader service.
+            delay_track (bool): Whether to apply the configured track delay.
+            quality_audio (Quality | None): Requested audio quality.
+            quality_video (QualityVideo | None): Requested video quality.
+
+        Returns:
+            QueueDownloadStatus: Finished, skipped, or failed.
+        """
         self.s_pb_reset.emit()
         self.s_statusbar_message.emit(
             StatusbarMessage(message="Download started...")
         )
 
-        if isinstance(media, Artist):
-            logger_gui.warning(
-                "Artist should be resolved to concrete media items before calling download()."
-            )
-            return QueueDownloadStatus.Skipped
-
-        path_helper_any = cast(Any, path_helper)
-        file_template = path_helper_any.get_format_template(
-            media, self.settings
-        )
+        file_template = get_format_template(media, self.settings)
         if not isinstance(file_template, str) or not file_template:
-            logger_gui.error(
-                "Could not determine file template for selected media."
+            log_message = (
+                f"No file template is configured for '{type(media).__name__}'."
             )
-            self.s_statusbar_message.emit(
-                StatusbarMessage(
-                    message="Download failed: invalid file template",
-                    timeout=3000,
-                )
-            )
+            logger_gui.error(log_message)
+            self._report_download_failure("invalid file template")
             return QueueDownloadStatus.Failed
 
         source_type, source_id, source_name = self._resolve_source_info(media)
-        video_download_setting, download_delay_setting = (
-            self._get_settings_flags()
+        request = ItemRequest(
+            file_template=file_template,
+            media=media,
+            video_download=self.settings.data.video_download,
+            download_delay=delay_track,
+            quality_audio=quality_audio,
+            quality_video=quality_video,
+            source_type=source_type,
+            source_id=source_id,
+            source_name=source_name,
         )
 
-        if isinstance(media, Track | Video):
-            result_dl, path_file = dl.item(
-                media=media,
-                file_template=file_template,
-                download_delay=delay_track,
-                quality_audio=quality_audio,
-                quality_video=quality_video,
-                source_type=source_type,
-                source_id=source_id,
-                source_name=source_name,
+        try:
+            if isinstance(media, Track | Video):
+                downloaded, path_file = downloader.item(request)
+            else:
+                downloader.items(request)
+                downloaded = True
+                path_file = "collection"
+        except DOWNLOAD_ERRORS:
+            log_message = (
+                f"Download failed for {type(media).__name__} "
+                f"'{source_id or source_name or 'unknown'}'."
             )
-        else:
-            dl.items(
-                media=media,
-                file_template=file_template,
-                video_download=video_download_setting,
-                download_delay=download_delay_setting,
-                quality_audio=quality_audio,
-                quality_video=quality_video,
-                source_type=source_type,
-                source_id=source_id,
-                source_name=source_name,
-            )
-
-            result_dl = True
-            path_file = "dummy"
+            logger_gui.exception(log_message)
+            self._report_download_failure("download service error")
+            return QueueDownloadStatus.Failed
 
         self.s_statusbar_message.emit(
             StatusbarMessage(message="Download finished.", timeout=2000)
         )
+        if downloaded and path_file:
+            return QueueDownloadStatus.Finished
+        if path_file:
+            return QueueDownloadStatus.Skipped
+        self._report_download_failure("no output was produced")
+        return QueueDownloadStatus.Failed
 
-        if result_dl and path_file:
-            result = QueueDownloadStatus.Finished
-        elif not result_dl and path_file:
-            result = QueueDownloadStatus.Skipped
-        else:
-            result = QueueDownloadStatus.Failed
+    def _report_download_failure(self, reason: str) -> None:
+        """Publish a contextual download failure to the status bar.
 
-        return result
+        Args:
+            reason (str): Short user-facing reason for the failure.
+        """
+        self.s_statusbar_message.emit(
+            StatusbarMessage(
+                message=f"Download failed: {reason}.",
+                timeout=5000,
+            )
+        )

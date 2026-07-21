@@ -29,10 +29,9 @@ dependencies = [
   "python-ffmpeg>=2.0.12",
   "pycryptodome>=3.23.0",
   "ansi2html>=1.9.2",
+  "pyside6>=6.11.1",
+  "pyqtdarktheme-fork>=2.3.6",
 ]
-
-[project.optional-dependencies]
-gui = ["pyside6>=6.11.1", "pyqtdarktheme-fork>=2.3.6"]
 
 [project.urls]
 repository = "https://github.com/FunWarry/tidal-dl-ng-For-DJ"

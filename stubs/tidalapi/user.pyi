@@ -1,16 +1,21 @@
-"""Stub for tidalapi.user to expose dynamically-set attributes."""
+# Stub for tidalapi.user with dynamically-set attributes.
+# Re-declares classes to expose dynamically-set attributes and
+# methods used by the project. These shadow the real
+# implementations for type-checking purposes only.
 
-from typing import Any, List
+from __future__ import annotations
+
+from typing import Any
 
 from tidalapi.playlist import UserPlaylist
 
-# Re-declare the classes to add dynamically-set attributes and the methods
-# used by the project. These shadow the real implementations for type checking.
 class Favorites:
-    """Favorites container with paginated accessors."""
+    # Favorites container with paginated accessors.
 
     def playlists_paginated(
-        self, limit: int = ..., offset: int = ...
+        self,
+        limit: int = ...,
+        offset: int = ...,
     ) -> list[Any]: ...
     def playlist_folders(
         self,
@@ -20,21 +25,21 @@ class Favorites:
     ) -> list[Any]: ...
 
 class User:
-    """Base user class."""
+    # Base user class.
 
     favorites: Favorites
 
     def __init__(self, *args: object, **kwargs: object) -> None: ...
 
 class FetchedUser(User):
-    """User fetched from the API."""
+    # User fetched from the TIDAL API.
 
-    def playlists(self) -> List[UserPlaylist]: ...
+    def playlists(self) -> list[UserPlaylist]: ...
 
 class LoggedInUser(FetchedUser):
-    """Currently authenticated user."""
+    # Currently authenticated user.
 
-    def playlists(self) -> List[UserPlaylist]: ...
+    def playlists(self) -> list[UserPlaylist]: ...
     def playlist_folders(
         self,
         limit: int = ...,
@@ -48,19 +53,6 @@ class LoggedInUser(FetchedUser):
     ) -> list[Any]: ...
 
 class PlaylistCreator(User):
-    """User that can create playlists."""
+    # User that can create playlists.
 
-    def playlists(self) -> List[UserPlaylist]: ...
-
-class Favorites:
-    """Favorites container with paginated accessors."""
-
-    def playlists_paginated(
-        self, limit: int = ..., offset: int = ...
-    ) -> list[Any]: ...
-    def playlist_folders(
-        self,
-        limit: int = ...,
-        offset: int = ...,
-        parent_folder_id: str = ...,
-    ) -> list[Any]: ...
+    def playlists(self) -> list[UserPlaylist]: ...
