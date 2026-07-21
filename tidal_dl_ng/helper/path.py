@@ -5,6 +5,8 @@ media file paths from format templates, and ensuring filename uniqueness
 across the local filesystem.
 """
 
+from __future__ import annotations
+
 import logging
 import math
 import os
@@ -13,7 +15,7 @@ import posixpath
 import re
 import sys
 from copy import deepcopy
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit
 
 from pathvalidate import sanitize_filename, sanitize_filepath
@@ -22,7 +24,6 @@ from tidalapi import Album, Mix, Playlist, Track, UserPlaylist, Video
 from tidalapi.media import AudioExtensions
 
 from tidal_dl_ng import __name_display__
-from tidal_dl_ng.config import Settings
 from tidal_dl_ng.constants import (
     FILENAME_LENGTH_MAX,
     FILENAME_SANITIZE_PLACEHOLDER,
@@ -35,6 +36,9 @@ from tidal_dl_ng.helper.tidal import (
     name_builder_artist,
     name_builder_title,
 )
+
+if TYPE_CHECKING:
+    from tidal_dl_ng.config import Settings
 
 logger = logging.getLogger(__name__)
 

@@ -14,10 +14,10 @@ from rich.progress import Progress
 
 from tidal_dl_ng.config import HandlingApp
 from tidal_dl_ng.download import Download
-from tidal_dl_ng.model.downloader import DownloadContext
 from tidal_dl_ng.helper.gui import FilterHeader, HumanProxyModel
 from tidal_dl_ng.helper.path import resource_path
 from tidal_dl_ng.logger import logger_gui
+from tidal_dl_ng.model.downloader import DownloadContext
 from tidal_dl_ng.model.gui_data import ProgressBars
 from tidal_dl_ng.ui.spinner import QtWaitingSpinner
 
@@ -62,7 +62,7 @@ class InitializationMixin:
 
     def _init_gui(self) -> None:
         """Initialize GUI-specific variables and state."""
-        settings_data = cast(Any, self.settings.data)
+        settings_data = cast("Any", self.settings.data)
         self._apply_window_geometry(settings_data)
         self.spinners: dict[QtWidgets.QWidget, QtWaitingSpinner] = {}
         self.converter_ansi_html: Ansi2HTMLConverter = Ansi2HTMLConverter()
@@ -79,7 +79,7 @@ class InitializationMixin:
         Args:
             settings_data (Any): The settings data object holding window_* values.
         """
-        screen = cast(Any, self).screen()
+        screen = cast("Any", self).screen()
         if screen is None:
             screen = QtWidgets.QApplication.primaryScreen()
         if screen is not None:
@@ -142,14 +142,14 @@ class InitializationMixin:
             list_name=self.s_list_name,
         )
         progress: Progress = Progress()
-        handling_app = cast(Any, HandlingApp)()
-        tidal_settings_data = cast(Any, self.tidal.settings.data)
-        settings_data = cast(Any, self.settings.data)
+        handling_app = cast("Any", HandlingApp)()
+        tidal_settings_data = cast("Any", self.tidal.settings.data)
+        settings_data = cast("Any", self.settings.data)
         self.dl = Download(
             tidal_obj=self.tidal,
             skip_existing=tidal_settings_data.skip_existing,
             path_base=settings_data.download_base_path,
-            fn_logger=cast(Any, logger_gui),
+            fn_logger=cast("Any", logger_gui),
             context=DownloadContext(
                 progress_gui=data_pb,
                 progress=progress,
@@ -181,14 +181,14 @@ class InitializationMixin:
         model: QtGui.QStandardItemModel,
     ) -> None:
         """Initialize the results tree view and its model."""
-        header: FilterHeader = cast(Any, FilterHeader)(tree)
-        self.proxy_tr_results = HumanProxyModel(cast(QtCore.QObject, self))
+        header: FilterHeader = cast("Any", FilterHeader)(tree)
+        self.proxy_tr_results = HumanProxyModel(cast("QtCore.QObject", self))
 
         tree.setHeader(header)
         tree.setModel(model)
         self.proxy_tr_results.setSourceModel(model)
         tree.setModel(self.proxy_tr_results)
-        cast(Any, header).set_filter_boxes(model.columnCount())
+        cast("Any", header).set_filter_boxes(model.columnCount())
         header.filter_activated.connect(self.handle_filter_activated)
 
         tree.sortByColumn(0, QtCore.Qt.SortOrder.AscendingOrder)
@@ -220,7 +220,7 @@ class InitializationMixin:
             proxy_model=self.proxy_tr_results,
             source_model=model,
             debounce_delay_ms=50,
-            parent=cast(QtCore.QObject, self),
+            parent=cast("QtCore.QObject", self),
         )
         self.hover_manager.s_hover_confirmed.connect(
             self.on_track_hover_confirmed
@@ -301,7 +301,7 @@ class InitializationMixin:
 
         self.a_view_history = QtGui.QAction(
             "View Download History...",
-            cast(QtCore.QObject, self),
+            cast("QtCore.QObject", self),
         )
         self.a_view_history.triggered.connect(self.on_view_history)
         tools_menu.addAction(self.a_view_history)
@@ -310,7 +310,7 @@ class InitializationMixin:
 
         self.a_toggle_duplicate_prevention = QtGui.QAction(
             "Prevent Duplicate Downloads",
-            cast(QtCore.QObject, self),
+            cast("QtCore.QObject", self),
         )
         self.a_toggle_duplicate_prevention.setCheckable(True)
         is_preventing = self.history_service.get_settings().get(

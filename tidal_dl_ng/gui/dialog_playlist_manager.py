@@ -71,6 +71,18 @@ class PlaylistMembership:
     error_message: str = ""
 
 
+def _playlist_name_sort_key(membership: PlaylistMembership) -> str:
+    """Return a case-insensitive sort key for a playlist membership.
+
+    Args:
+        membership (PlaylistMembership): Playlist row to sort.
+
+    Returns:
+        str: Case-folded playlist name.
+    """
+    return membership.name.casefold()
+
+
 @dataclass(frozen=True, slots=True)
 class PlaylistTransaction:
     """Immutable request executed by a worker thread."""
@@ -435,7 +447,7 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
                     checked=checked,
                 ),
             )
-        memberships.sort(key=lambda membership: membership.name.casefold())
+        memberships.sort(key=_playlist_name_sort_key)
         return memberships
 
     def _build_ui(self, track_title: str) -> PlaylistDialogWidgets:
