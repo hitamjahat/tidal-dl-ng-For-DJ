@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from tidal_dl_ng.gui.playlist import GuiPlaylistManager
     from tidal_dl_ng.gui.queue import GuiQueueManager
     from tidal_dl_ng.gui.search import GuiSearchManager
+    from tidal_dl_ng.helper.gui import HumanProxyModel
     from tidal_dl_ng.history import HistoryService
 
 
@@ -70,7 +71,7 @@ class ContextMenusMixin:
     tr_results: QtWidgets.QTreeView
     tr_queue_download: QtWidgets.QTreeWidget
     tr_lists_user: QtWidgets.QTreeWidget
-    proxy_tr_results: QtCore.QSortFilterProxyModel
+    proxy_tr_results: HumanProxyModel
     model_tr_results: QtGui.QStandardItemModel
     history_service: HistoryService
     playlist_manager: GuiPlaylistManager

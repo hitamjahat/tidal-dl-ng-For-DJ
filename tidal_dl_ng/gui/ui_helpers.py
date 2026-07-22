@@ -5,8 +5,9 @@ Handles UI helper functions like spinners, logs, and status bar messages.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from ansi2html import Ansi2HTMLConverter
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from tidal_dl_ng.ui.spinner import QtWaitingSpinner
@@ -15,16 +16,16 @@ if TYPE_CHECKING:
     from tidal_dl_ng.model.gui_data import StatusbarMessage
 
 
-class UIHelpersMixin(QtCore.QObject):
+class UIHelpersMixin:
     """Mixin containing UI helper methods."""
 
     if TYPE_CHECKING:
         # Attributes provided by MainWindow at runtime.
         spinners: dict[QtWidgets.QWidget, QtWaitingSpinner]
         statusbar: QtWidgets.QStatusBar
-        te_debug: QtWidgets.QTextEdit
+        te_debug: QtWidgets.QPlainTextEdit
         pb_reload_user_lists: QtWidgets.QPushButton
-        converter_ansi_html: Any
+        converter_ansi_html: Ansi2HTMLConverter
 
     def on_spinner_start(self, parent: QtWidgets.QWidget) -> None:
         """Start a loading spinner on the given parent widget.

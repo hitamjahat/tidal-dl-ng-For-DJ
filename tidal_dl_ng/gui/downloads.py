@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from tidal_dl_ng.config import Settings, Tidal
     from tidal_dl_ng.download import Download
     from tidal_dl_ng.gui.queue import GuiQueueManager
+    from tidal_dl_ng.helper.gui import HumanProxyModel
 
 
 type DownloadableMedia = Track | Video | Album | Playlist | UserPlaylist | Mix
@@ -75,7 +76,7 @@ class DownloadsMixin:
     """Provide result-to-queue and download services to ``MainWindow``."""
 
     tr_results: QtWidgets.QTreeView
-    proxy_tr_results: QtCore.QSortFilterProxyModel
+    proxy_tr_results: HumanProxyModel
     model_tr_results: QtGui.QStandardItemModel
     queue_manager: GuiQueueManager
     tidal: Tidal

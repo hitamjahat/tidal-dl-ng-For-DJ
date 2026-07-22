@@ -72,6 +72,7 @@ class Settings:
     api_key_index: int = 0
     album_info_save: bool = False
     video_download: bool = True
+    skip_existing: bool = False
     multi_thread: bool = False
     download_delay: bool = True
     download_base_path: str = "~/download"
@@ -84,8 +85,7 @@ class Settings:
         "{album_track_num}. {artist_name} - {track_title}{album_explicit}"
     )
     format_playlist: str = (
-        "Playlists/{playlist_name}/{list_pos}. "
-        "{artist_name} - {track_title}"
+        "Playlists/{playlist_name}/{list_pos}. {artist_name} - {track_title}"
     )
     format_mix: str = "Mix/{mix_name}/{artist_name} - {track_title}"
     format_track: str = "Tracks/{artist_name} - {track_title}{track_explicit}"
@@ -248,7 +248,7 @@ class HelpSettings:
         "Metadata tag delimiter for multiple artists. Default: ', '"
     )
     metadata_delimiter_album_artist: str = (
-        "Metadata tag delimiter for multiple album artists. Default: " "', '"
+        "Metadata tag delimiter for multiple album artists. Default: ', '"
     )
     filename_delimiter_artist: str = (
         "Filename delimiter for multiple artists. Default: ', '"

@@ -16,7 +16,7 @@ Performance Considerations:
 """
 
 import datetime
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import suppress
 from typing import TYPE_CHECKING
 
@@ -25,12 +25,28 @@ from tidalapi import Album, Mix, Playlist, Track, Video
 from tidalapi.artist import Artist
 from tidalapi.media import AudioMode
 
-from tidal_dl_ng.helper.metadata_utils import extract_names_from_mixed, find_attr, safe_str
+from tidal_dl_ng.helper.metadata_utils import (
+    extract_names_from_mixed,
+    find_attr,
+    safe_str,
+)
 from tidal_dl_ng.helper.path import resource_path
-from tidal_dl_ng.helper.tidal import name_builder_artist, name_builder_title, quality_audio_highest
+from tidal_dl_ng.helper.tidal import (
+    name_builder_artist,
+    name_builder_title,
+    quality_audio_highest,
+)
 
 if TYPE_CHECKING:
     pass
+
+
+type TrackExtras = Mapping[str, object]
+type TrackExtrasCallback = Callable[[str, TrackExtras | None], None]
+type TrackExtrasProvider = Callable[
+    [str, TrackExtrasCallback],
+    TrackExtras | None,
+]
 
 
 class TrackInfoFormatter:
@@ -90,7 +106,11 @@ class TrackInfoFormatter:
             if artist_parts:
                 return ", ".join(artist_parts)
 
-        return name_builder_artist(media) if hasattr(media, "artists") else "Unknown Artist"
+        return (
+            name_builder_artist(media)
+            if hasattr(media, "artists")
+            else "Unknown Artist"
+        )
 
     @staticmethod
     def format_codec(track: Track) -> str:
@@ -115,7 +135,11 @@ class TrackInfoFormatter:
             codec_parts.append(str(quality).upper())
 
         # Check for Dolby Atmos
-        if hasattr(track, "audio_modes") and track.audio_modes and AudioMode.dolby_atmos.value in track.audio_modes:
+        if (
+            hasattr(track, "audio_modes")
+            and track.audio_modes
+            and AudioMode.dolby_atmos.value in track.audio_modes
+        ):
             codec_parts.append("Dolby Atmos")
 
         # Check for MQA
@@ -210,10 +234,15 @@ class InfoTabWidget(QtCore.QObject):
     s_search_in_app: QtCore.Signal = QtCore.Signal(str, str)
     s_search_in_browser: QtCore.Signal = QtCore.Signal(str, str)
 
-    def _setup_search_roots(self, parent_widget: QtWidgets.QTabWidget | None) -> list:
+    def _setup_search_roots(
+        self, parent_widget: QtWidgets.QTabWidget | None
+    ) -> list:
         """Setup list of widget roots to search for UI elements."""
         search_roots = [parent_widget]
-        if hasattr(parent_widget, "parent") and parent_widget.parent() is not None:
+        if (
+            hasattr(parent_widget, "parent")
+            and parent_widget.parent() is not None
+        ):
             search_roots.append(parent_widget.parent())
         with suppress(Exception):
             root_window = parent_widget.window()
@@ -221,7 +250,9 @@ class InfoTabWidget(QtCore.QObject):
                 search_roots.append(root_window)
         return search_roots
 
-    def _find_widget_in_roots(self, objname: str, search_roots: list) -> QtWidgets.QLabel | None:
+    def _find_widget_in_roots(
+        self, objname: str, search_roots: list
+    ) -> QtWidgets.QLabel | None:
         """Find a QLabel widget by objectName in search roots."""
         for root in search_roots:
             with suppress(Exception):
@@ -230,9 +261,15 @@ class InfoTabWidget(QtCore.QObject):
                     return found
         return None
 
-    def _create_fallback_widget(self, desc: str, parent_widget: QtWidgets.QWidget) -> tuple[str, QtWidgets.QLabel]:
+    def _create_fallback_widget(
+        self, desc: str, parent_widget: QtWidgets.QWidget
+    ) -> tuple[str, QtWidgets.QLabel]:
         """Create a fallback invisible widget for a missing UI element."""
-        name = desc.split("(")[-1].rstrip(")") if "(" in desc and ")" in desc else f"fallback_{desc.replace(' ', '_')}"
+        name = (
+            desc.split("(")[-1].rstrip(")")
+            if "(" in desc and ")" in desc
+            else f"fallback_{desc.replace(' ', '_')}"
+        )
 
         fallback = QtWidgets.QLabel("—", parent_widget)
         fallback.setObjectName(name)
@@ -253,10 +290,14 @@ class InfoTabWidget(QtCore.QObject):
         super().__init__(parent)
 
         # State management
-        self.current_media_hovered: Track | Video | Album | Mix | Playlist | Artist | None = None
-        self.current_media_selected: Track | Video | Album | Mix | Playlist | Artist | None = None
+        self.current_media_hovered: (
+            Track | Video | Album | Mix | Playlist | Artist | None
+        ) = None
+        self.current_media_selected: (
+            Track | Video | Album | Mix | Playlist | Artist | None
+        ) = None
         self.cover_url_current: str = ""
-        self._track_extras_provider: Callable[[str], dict] | None = None
+        self._track_extras_provider: TrackExtrasProvider | None = None
 
         # Bind to widgets created in the .ui by exact objectName.
         self.tab_widget = existing_tab_widget
@@ -288,13 +329,17 @@ class InfoTabWidget(QtCore.QObject):
             if not found_widget:
                 missing.append(desc)
             else:
-                attr_name = "cover_label" if objname == "l_pm_cover" else objname
+                attr_name = (
+                    "cover_label" if objname == "l_pm_cover" else objname
+                )
                 setattr(self, attr_name, found_widget)
 
         # Create fallback widgets for missing elements
         if missing:
             for desc in missing:
-                name, fallback = self._create_fallback_widget(desc, parent_widget)
+                name, fallback = self._create_fallback_widget(
+                    desc, parent_widget
+                )
                 if name == "l_pm_cover":
                     self.cover_label = fallback
                 else:
@@ -316,11 +361,17 @@ class InfoTabWidget(QtCore.QObject):
             label.setOpenExternalLinks(False)  # We handle links manually
             label.linkActivated.connect(self._on_link_activated)
             label.installEventFilter(self)  # For right-click handling
-            label.setToolTip("Left-click to search in app, Ctrl+click or right-click to search in browser.")
+            label.setToolTip(
+                "Left-click to search in app, Ctrl+click or right-click to search in browser."
+            )
 
-    def eventFilter(self, watched: QtCore.QObject, event: QtCore.QEvent) -> bool:
+    def eventFilter(
+        self, watched: QtCore.QObject, event: QtCore.QEvent
+    ) -> bool:
         """Filter events for clickable labels to handle right-clicks."""
-        if event.type() == QtCore.QEvent.Type.MouseButtonPress and isinstance(watched, QtWidgets.QLabel):
+        if event.type() == QtCore.QEvent.Type.MouseButtonPress and isinstance(
+            watched, QtWidgets.QLabel
+        ):
             event: QtGui.QMouseEvent
             if event.button() == QtCore.Qt.MouseButton.RightButton:
                 # On right-click, find the link under the cursor
@@ -354,7 +405,9 @@ class InfoTabWidget(QtCore.QObject):
         search_term = parts[2]
         modifiers = QtWidgets.QApplication.keyboardModifiers()
 
-        is_browser_action = right_click or (modifiers & QtCore.Qt.KeyboardModifier.ControlModifier)
+        is_browser_action = right_click or (
+            modifiers & QtCore.Qt.KeyboardModifier.ControlModifier
+        )
 
         if is_browser_action:
             # Ctrl+Click or Right-Click: Open in browser
@@ -382,7 +435,8 @@ class InfoTabWidget(QtCore.QObject):
                 self.set_cover_pixmap(cover_url)
 
     def set_track_extras_provider(
-        self, provider: Callable[[str, Callable[[str, dict | None], None]], dict | None] | None
+        self,
+        provider: TrackExtrasProvider | None,
     ) -> None:
         """Register a callable that fetches track extras asynchronously.
 
@@ -427,18 +481,24 @@ class InfoTabWidget(QtCore.QObject):
             return
         self.s_spinner_start.emit()
         try:
-            immediate = self._track_extras_provider(str(track_id), self._handle_track_extras_ready)
+            immediate = self._track_extras_provider(
+                str(track_id), self._handle_track_extras_ready
+            )
             if immediate:
                 self._apply_track_extras(immediate)
                 self.s_spinner_stop.emit()
         except Exception:
             self.s_spinner_stop.emit()
 
-    def _handle_track_extras_ready(self, track_id: str, extras: dict | None) -> None:
+    def _handle_track_extras_ready(
+        self, track_id: str, extras: dict | None
+    ) -> None:
         """Callback invoked by the provider when async extras are ready."""
         try:
             if extras:
-                current = self.current_media_hovered or self.current_media_selected
+                current = (
+                    self.current_media_hovered or self.current_media_selected
+                )
                 current_id = getattr(current, "id", None)
                 if current_id is not None and str(current_id) == str(track_id):
                     self._apply_track_extras(extras)
@@ -475,7 +535,9 @@ class InfoTabWidget(QtCore.QObject):
         except RuntimeError:
             pass  # Widgets deleted, silently ignore
 
-    def update_on_hover(self, media: Track | Video | Album | Mix | Playlist | Artist | None) -> None:
+    def update_on_hover(
+        self, media: Track | Video | Album | Mix | Playlist | Artist | None
+    ) -> None:
         """Update display based on hovered media item.
 
         This method is called when the user hovers over a track in the results list.
@@ -495,7 +557,9 @@ class InfoTabWidget(QtCore.QObject):
         # Cover is handled by MainWindow
         self._request_track_extras_if_needed(media)
 
-    def update_on_selection(self, media: Track | Video | Album | Mix | Playlist | Artist | None) -> None:
+    def update_on_selection(
+        self, media: Track | Video | Album | Mix | Playlist | Artist | None
+    ) -> None:
         """Update display based on selected media item.
 
         This method is called when the user clicks on a track in the results list.
@@ -544,13 +608,17 @@ class InfoTabWidget(QtCore.QObject):
             self.lbl_track_number.setText("—")
 
             # Reset cover to default
-            path_image: str = resource_path("tidal_dl_ng/ui/default_album_image.png")
+            path_image: str = resource_path(
+                "tidal_dl_ng/ui/default_album_image.png"
+            )
             self.cover_label.setPixmap(QtGui.QPixmap(path_image))
             self.cover_url_current = ""
         except RuntimeError:
             pass  # Widgets deleted, silently ignore
 
-    def _on_update_details(self, media: Track | Video | Album | Mix | Playlist | Artist) -> None:
+    def _on_update_details(
+        self, media: Track | Video | Album | Mix | Playlist | Artist
+    ) -> None:
         """Update details tab with media metadata.
 
         Args:
@@ -591,7 +659,9 @@ class InfoTabWidget(QtCore.QObject):
                     artist_parts.append(f"{link} ({', '.join(roles)})")
                 else:
                     artist_parts.append(link)
-        self.lbl_artists.setText(", ".join(artist_parts) if artist_parts else "—")
+        self.lbl_artists.setText(
+            ", ".join(artist_parts) if artist_parts else "—"
+        )
 
         # Album name (prefer album object's name)
         album_name = None
@@ -606,13 +676,21 @@ class InfoTabWidget(QtCore.QObject):
         self.lbl_bitrate.setText(safe_str(bitrate))
 
         # Duration
-        duration = TrackInfoFormatter.format_duration(getattr(track, "duration", None))
+        duration = TrackInfoFormatter.format_duration(
+            getattr(track, "duration", None)
+        )
         self.lbl_duration.setText(safe_str(duration))
 
         # Release date (from album if exists)
         release_date = None
-        if hasattr(track, "album") and track.album and hasattr(track.album, "release_date"):
-            release_date = TrackInfoFormatter.format_date(track.album.release_date)
+        if (
+            hasattr(track, "album")
+            and track.album
+            and hasattr(track.album, "release_date")
+        ):
+            release_date = TrackInfoFormatter.format_date(
+                track.album.release_date
+            )
         self.lbl_release_date.setText(safe_str(release_date))
 
         # Popularity
@@ -627,9 +705,22 @@ class InfoTabWidget(QtCore.QObject):
         self.lbl_isrc.setText(safe_str(isrc))
 
         # Track Number
-        track_number = find_attr(track, "track_number", "tracknumber", "number", "position", "track") or None
+        track_number = (
+            find_attr(
+                track,
+                "track_number",
+                "tracknumber",
+                "number",
+                "position",
+                "track",
+            )
+            or None
+        )
         if track_number is None and hasattr(track, "album") and track.album:
-            track_number = find_attr(track.album, "track_number", "tracknumber", "number") or None
+            track_number = (
+                find_attr(track.album, "track_number", "tracknumber", "number")
+                or None
+            )
         self.lbl_track_number.setText(safe_str(track_number))
 
     def _populate_video_details(self, video: Video) -> None:
@@ -646,7 +737,8 @@ class InfoTabWidget(QtCore.QObject):
 
         # Artists
         artists_str = extract_names_from_mixed(
-            getattr(video, "credits", None), match_types=("performer", "artist", "actor")
+            getattr(video, "credits", None),
+            match_types=("performer", "artist", "actor"),
         )
         if not artists_str:
             artist_parts = []
@@ -654,7 +746,9 @@ class InfoTabWidget(QtCore.QObject):
                 for artist in video.artists:
                     name = TrackInfoFormatter._get_artist_name(artist)
                     artist_parts.append(self._create_link("artist", name))
-            self.lbl_artists.setText(", ".join(artist_parts) if artist_parts else "—")
+            self.lbl_artists.setText(
+                ", ".join(artist_parts) if artist_parts else "—"
+            )
         else:
             self.lbl_artists.setText(self._create_link("artist", artists_str))
 
@@ -671,13 +765,21 @@ class InfoTabWidget(QtCore.QObject):
         self.lbl_bitrate.setText(safe_str(bitrate))
 
         # Duration
-        duration = TrackInfoFormatter.format_duration(getattr(video, "duration", None))
+        duration = TrackInfoFormatter.format_duration(
+            getattr(video, "duration", None)
+        )
         self.lbl_duration.setText(safe_str(duration))
 
         # Release date
         release_date = None
-        if hasattr(video, "album") and video.album and hasattr(video.album, "release_date"):
-            release_date = TrackInfoFormatter.format_date(video.album.release_date)
+        if (
+            hasattr(video, "album")
+            and video.album
+            and hasattr(video.album, "release_date")
+        ):
+            release_date = TrackInfoFormatter.format_date(
+                video.album.release_date
+            )
         self.lbl_release_date.setText(safe_str(release_date))
 
         # Popularity
@@ -708,7 +810,9 @@ class InfoTabWidget(QtCore.QObject):
             for artist in album.artists:
                 name = TrackInfoFormatter._get_artist_name(artist)
                 artist_parts.append(self._create_link("artist", name))
-        self.lbl_artists.setText(", ".join(artist_parts) if artist_parts else "—")
+        self.lbl_artists.setText(
+            ", ".join(artist_parts) if artist_parts else "—"
+        )
 
         # Album name (same as title for an album)
         self.lbl_album.setText(self._create_link("album", title))
@@ -720,11 +824,15 @@ class InfoTabWidget(QtCore.QObject):
         self.lbl_bitrate.setText(safe_str(bitrate))
 
         # Duration
-        duration = TrackInfoFormatter.format_duration(getattr(album, "duration", None))
+        duration = TrackInfoFormatter.format_duration(
+            getattr(album, "duration", None)
+        )
         self.lbl_duration.setText(safe_str(duration))
 
         # Release date
-        release_date = TrackInfoFormatter.format_date(getattr(album, "release_date", None))
+        release_date = TrackInfoFormatter.format_date(
+            getattr(album, "release_date", None)
+        )
         self.lbl_release_date.setText(safe_str(release_date))
 
         # Popularity
@@ -735,32 +843,47 @@ class InfoTabWidget(QtCore.QObject):
 
     def _extract_playlist_artists(self, playlist: Playlist | Mix) -> str:
         """Extract and format artists from playlist tracks."""
-        if not hasattr(playlist, "tracks") or not isinstance(playlist.tracks, list | Iterable):
+        if not hasattr(playlist, "tracks") or not isinstance(
+            playlist.tracks, list | Iterable
+        ):
             return "—"
 
         all_artists = set()
         for track in playlist.tracks:
-            if isinstance(track, Track | Video | Album) and hasattr(track, "artists"):
+            if isinstance(track, Track | Video | Album) and hasattr(
+                track, "artists"
+            ):
                 for artist in track.artists:
                     name = TrackInfoFormatter._get_artist_name(artist)
                     if name and name != "Unknown Artist":
                         all_artists.add(name)
 
         if all_artists:
-            artist_links = [self._create_link("artist", name) for name in list(all_artists)[:5]]
+            artist_links = [
+                self._create_link("artist", name)
+                for name in list(all_artists)[:5]
+            ]
             return ", ".join(artist_links)
         return "—"
 
     def _extract_playlist_release_date(self, playlist: Playlist | Mix) -> str:
         """Extract release date from playlist or its first track."""
-        release_date = TrackInfoFormatter.format_date(getattr(playlist, "release_date", None))
+        release_date = TrackInfoFormatter.format_date(
+            getattr(playlist, "release_date", None)
+        )
         if release_date != "N/A":
             return release_date
 
-        if hasattr(playlist, "tracks") and isinstance(playlist.tracks, list | Iterable):
+        if hasattr(playlist, "tracks") and isinstance(
+            playlist.tracks, list | Iterable
+        ):
             for track in playlist.tracks:
-                if isinstance(track, Track | Video | Album) and hasattr(track, "album"):
-                    release_date = TrackInfoFormatter.format_date(getattr(track.album, "release_date", None))
+                if isinstance(track, Track | Video | Album) and hasattr(
+                    track, "album"
+                ):
+                    release_date = TrackInfoFormatter.format_date(
+                        getattr(track.album, "release_date", None)
+                    )
                     if release_date and release_date != "N/A":
                         return release_date
         return "N/A"
@@ -790,7 +913,9 @@ class InfoTabWidget(QtCore.QObject):
         self.lbl_bitrate.setText("—")
 
         # Duration
-        duration = TrackInfoFormatter.format_duration(getattr(playlist, "duration", None))
+        duration = TrackInfoFormatter.format_duration(
+            getattr(playlist, "duration", None)
+        )
         self.lbl_duration.setText(safe_str(duration))
 
         # Release date
@@ -805,7 +930,9 @@ class InfoTabWidget(QtCore.QObject):
 
     def _extract_artist_album_name(self, artist: Artist) -> str | None:
         """Extract first album name from artist's albums."""
-        if not hasattr(artist, "albums") or not isinstance(artist.albums, list | Iterable):
+        if not hasattr(artist, "albums") or not isinstance(
+            artist.albums, list | Iterable
+        ):
             return None
 
         for album in artist.albums:
@@ -815,7 +942,9 @@ class InfoTabWidget(QtCore.QObject):
 
     def _calculate_artist_total_duration(self, artist: Artist) -> int:
         """Calculate total duration of all artist's albums."""
-        if not hasattr(artist, "albums") or not isinstance(artist.albums, list | Iterable):
+        if not hasattr(artist, "albums") or not isinstance(
+            artist.albums, list | Iterable
+        ):
             return 0
 
         total_duration = 0
@@ -828,12 +957,16 @@ class InfoTabWidget(QtCore.QObject):
 
     def _extract_artist_release_date(self, artist: Artist) -> str | None:
         """Extract release date from artist's first album."""
-        if not hasattr(artist, "albums") or not isinstance(artist.albums, list | Iterable):
+        if not hasattr(artist, "albums") or not isinstance(
+            artist.albums, list | Iterable
+        ):
             return None
 
         for album in artist.albums:
             if isinstance(album, Album) and hasattr(album, "release_date"):
-                release_date = TrackInfoFormatter.format_date(getattr(album, "release_date", None))
+                release_date = TrackInfoFormatter.format_date(
+                    getattr(album, "release_date", None)
+                )
                 if release_date and release_date != "N/A":
                     return release_date
         return None

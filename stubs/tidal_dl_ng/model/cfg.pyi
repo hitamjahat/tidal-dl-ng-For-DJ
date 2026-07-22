@@ -1,5 +1,3 @@
-"""Stub for tidal_dl_ng.model.cfg - provides to_dict() from dataclass_json."""
-
 from dataclasses import dataclass
 
 from dataclasses_json import DataClassJsonMixin
@@ -13,12 +11,11 @@ from tidal_dl_ng.constants import (
 
 @dataclass
 class Settings(DataClassJsonMixin):
-    """User-configurable application settings persisted to disk."""
-
     lyrics_embed: bool
     lyrics_file: bool
     use_primary_album_artist: bool
     video_download: bool
+    skip_existing: bool
     download_delay: bool
     download_base_path: str
     quality_audio: Quality
@@ -61,8 +58,6 @@ class Settings(DataClassJsonMixin):
 
 @dataclass
 class HelpSettings(DataClassJsonMixin):
-    """Human-readable descriptions for each settings field."""
-
     skip_existing: str = ...
     album_cover_save: str = ...
     lyrics_embed: str = ...

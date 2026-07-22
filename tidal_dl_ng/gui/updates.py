@@ -29,7 +29,7 @@ class UpdatesMixin(QtCore.QObject):
 
     if TYPE_CHECKING:
         # Declared for type checkers; provided by the owning MainWindow.
-        s_update_show: QtCore.Signal
+        s_update_show: QtCore.SignalInstance
         _main_window: MainWindow
 
     def on_update_check(self, on_startup: bool = True) -> None:

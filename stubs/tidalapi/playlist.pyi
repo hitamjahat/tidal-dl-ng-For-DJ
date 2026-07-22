@@ -5,7 +5,7 @@ from tidalapi.artist import Artist
 from tidalapi.media import Track, Video
 from tidalapi.request import Requests
 from tidalapi.session import Session
-from tidalapi.types import ItemOrder, JsonObj, OrderDirection
+from tidalapi.types import JsonObj
 from tidalapi.user import User
 
 def list_validate(items: str | Sequence[str]) -> list[str]: ...
@@ -50,20 +50,20 @@ class Playlist:
         self,
         limit: int | None = None,
         offset: int = 0,
-        order: ItemOrder | None = None,
-        order_direction: OrderDirection | None = None,
+        order: str | None = None,
+        order_direction: str | None = None,
     ) -> list[Track]: ...
     def tracks_paginated(
         self,
-        order: ItemOrder | None = None,
-        order_direction: OrderDirection | None = None,
+        order: str | None = None,
+        order_direction: str | None = None,
     ) -> list[Playlist]: ...
     def items(
         self,
         limit: int = 100,
         offset: int = 0,
-        order: ItemOrder | None = None,
-        order_direction: OrderDirection | None = None,
+        order: str | None = None,
+        order_direction: str | None = None,
     ) -> list[Track | Video]: ...
     def image(
         self,

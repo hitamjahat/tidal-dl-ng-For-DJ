@@ -6,13 +6,14 @@ Handles all Qt signal definitions and connections.
 from __future__ import annotations
 
 import contextlib
-from typing import TYPE_CHECKING, Any, cast
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, cast
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi import Quality
 
 from tidal_dl_ng.constants import QualityVideo
-from tidal_dl_ng.helper.gui import get_results_media_item
+from tidal_dl_ng.helper.gui import HumanProxyModel, get_results_media_item
 
 if TYPE_CHECKING:
     from tidalapi import Album, Artist, Mix, Playlist, Track, Video
@@ -22,13 +23,15 @@ if TYPE_CHECKING:
     from tidal_dl_ng.gui.playlist import GuiPlaylistManager
     from tidal_dl_ng.gui.queue import GuiQueueManager
     from tidal_dl_ng.gui.search import GuiSearchManager
+    from tidal_dl_ng.model.gui_data import StatusbarMessage
+    from tidal_dl_ng.model.meta import ReleaseLatest
     from tidal_dl_ng.ui.info_tab_widget import InfoTabWidget
 
     # Media types returned when resolving a results-tree row.
-    ResultMedia = Track | Video | Album | Artist | Playlist | Mix
+    type ResultMedia = Track | Video | Album | Artist | Playlist | Mix
 
     # Quality values stored in the combo-box item data.
-    QualityValue = Quality | QualityVideo | int | str | None
+    type QualityValue = Quality | QualityVideo | int | str | None
 
 
 class SignalsMixin:
@@ -37,7 +40,7 @@ class SignalsMixin:
     # Attributes provided by MainWindow at runtime.
     settings: Settings
     tidal: Tidal
-    thread_it: Any
+    thread_it: Callable[..., object]
 
     pb_download: QtWidgets.QPushButton
     pb_download_list: QtWidgets.QPushButton
@@ -53,50 +56,52 @@ class SignalsMixin:
     a_logout: QtGui.QAction
     a_updates_check: QtGui.QAction
 
-    proxy_tr_results: QtCore.QSortFilterProxyModel
+    proxy_tr_results: HumanProxyModel
     model_tr_results: QtGui.QStandardItemModel
     search_manager: GuiSearchManager
     queue_manager: GuiQueueManager
     playlist_manager: GuiPlaylistManager
     info_tab_widget: InfoTabWidget
     cover_manager: CoverManager
-    close: Any
+    close: Callable[..., object]
 
     # Signals emitted by other mixins.
-    s_spinner_start: Any
-    s_spinner_stop: Any
-    s_item_advance: Any
-    s_item_name: Any
-    s_list_name: Any
-    s_list_advance: Any
-    s_pb_reset: Any
-    s_statusbar_message: Any
-    s_tr_results_add_top_level_item: Any
-    s_settings_save: Any
-    s_pb_reload_status: Any
-    s_update_check: Any
-    s_update_show: Any
+    s_spinner_start: QtCore.SignalInstance
+    s_spinner_stop: QtCore.SignalInstance
+    s_item_advance: QtCore.SignalInstance
+    s_item_name: QtCore.SignalInstance
+    s_list_name: QtCore.SignalInstance
+    s_list_advance: QtCore.SignalInstance
+    s_pb_reset: QtCore.SignalInstance
+    s_statusbar_message: QtCore.SignalInstance
+    s_tr_results_add_top_level_item: QtCore.SignalInstance
+    s_settings_save: QtCore.SignalInstance
+    s_pb_reload_status: QtCore.SignalInstance
+    s_update_check: QtCore.SignalInstance
+    s_update_show: QtCore.SignalInstance
 
     # Slots defined in sibling mixins.
-    on_spinner_start: Any
-    on_spinner_stop: Any
-    on_progress_item: Any
-    on_progress_item_name: Any
-    on_progress_list_name: Any
-    on_progress_list: Any
-    on_progress_reset: Any
-    on_statusbar_message: Any
-    on_tr_results_add_top_level_item: Any
-    on_settings_save: Any
-    button_reload_status: Any
-    on_version: Any
-    on_preferences: Any
-    on_logout: Any
-    on_tr_results_expanded: Any
-    on_search_in_app: Any
-    on_search_in_browser: Any
-    on_download_results: Any
-    on_update_check: Any
+    on_spinner_start: Callable[[QtWidgets.QWidget], None]
+    on_spinner_stop: Callable[[], None]
+    on_progress_item: Callable[[float], None]
+    on_progress_item_name: Callable[[str], None]
+    on_progress_list_name: Callable[[str], None]
+    on_progress_list: Callable[[float], None]
+    on_progress_reset: Callable[[], None]
+    on_statusbar_message: Callable[[StatusbarMessage], None]
+    on_tr_results_add_top_level_item: Callable[
+        [Sequence[QtGui.QStandardItem]], None
+    ]
+    on_settings_save: Callable[[], None]
+    button_reload_status: Callable[[bool], None]
+    on_version: Callable[[bool, bool, ReleaseLatest | None], None]
+    on_preferences: Callable[[], None]
+    on_logout: Callable[[], None]
+    on_tr_results_expanded: Callable[[QtCore.QModelIndex], None]
+    on_search_in_app: Callable[[str, str], None]
+    on_search_in_browser: Callable[[str, str], None]
+    on_download_results: Callable[[], None]
+    on_update_check: Callable[..., None]
 
     def _init_signals(self) -> None:
         """Connect signals to their respective slots."""
@@ -148,30 +153,30 @@ class SignalsMixin:
             self.on_search_in_browser
         )
 
-    def _on_search_triggered(self, *_args: Any) -> None:
+    def _on_search_triggered(self, *_args: object) -> None:
         """Run a search using the current query and selected type."""
         self.search_manager.search_populate_results(
             self.l_search.text(),
             self.cb_search_type.currentData(),
         )
 
-    def _on_download_results_triggered(self, *_args: Any) -> None:
+    def _on_download_results_triggered(self, *_args: object) -> None:
         """Trigger a download of the current results in a worker thread."""
         self.thread_it(self.on_download_results)
 
-    def _on_download_list_triggered(self, *_args: Any) -> None:
+    def _on_download_list_triggered(self, *_args: object) -> None:
         """Trigger a download of the selected list in a worker thread."""
         self.thread_it(self.playlist_manager.on_download_list_media)
 
-    def _on_update_check_triggered(self, *_args: Any) -> None:
+    def _on_update_check_triggered(self, *_args: object) -> None:
         """Trigger an update check in a worker thread."""
         self.thread_it(self.on_update_check)
 
-    def _on_version_triggered(self, *_args: Any) -> None:
+    def _on_version_triggered(self, *_args: object) -> None:
         """Show the version dialog without receiving a QAction state."""
         self.on_version()
 
-    def _on_update_check_manual(self, *_args: Any) -> None:
+    def _on_update_check_manual(self, *_args: object) -> None:
         """Run an update check without the startup-only behavior."""
         self.on_update_check(on_startup=False)
 
