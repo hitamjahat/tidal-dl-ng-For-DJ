@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi import Quality
@@ -33,6 +33,21 @@ if TYPE_CHECKING:
     # Quality values stored in the combo-box item data.
     type QualityValue = Quality | QualityVideo | int | str | None
 
+    class _ThreadItSlot(Protocol):
+        """Callable type for ``thread_it`` dispatching to a thread pool."""
+
+        def __call__(self, function: object, *args: object) -> None: ...
+
+    class _VersionSlot(Protocol):
+        """Callable type for ``on_version`` with all-optional args."""
+
+        def __call__(
+            self,
+            update_check: bool = False,
+            is_available: bool = False,
+            update_info: ReleaseLatest | None = None,
+        ) -> None: ...
+
 
 class SignalsMixin:
     """Mixin containing Qt signal definitions and signal connection methods."""
@@ -40,7 +55,7 @@ class SignalsMixin:
     # Attributes provided by MainWindow at runtime.
     settings: Settings
     tidal: Tidal
-    thread_it: Callable[..., object]
+    thread_it: _ThreadItSlot
 
     pb_download: QtWidgets.QPushButton
     pb_download_list: QtWidgets.QPushButton
@@ -63,7 +78,7 @@ class SignalsMixin:
     playlist_manager: GuiPlaylistManager
     info_tab_widget: InfoTabWidget
     cover_manager: CoverManager
-    close: Callable[..., object]
+    close: Callable[[], bool]
 
     # Signals emitted by other mixins.
     s_spinner_start: QtCore.SignalInstance
@@ -94,14 +109,14 @@ class SignalsMixin:
     ]
     on_settings_save: Callable[[], None]
     button_reload_status: Callable[[bool], None]
-    on_version: Callable[[bool, bool, ReleaseLatest | None], None]
+    on_version: _VersionSlot
     on_preferences: Callable[[], None]
     on_logout: Callable[[], None]
     on_tr_results_expanded: Callable[[QtCore.QModelIndex], None]
     on_search_in_app: Callable[[str, str], None]
     on_search_in_browser: Callable[[str, str], None]
     on_download_results: Callable[[], None]
-    on_update_check: Callable[..., None]
+    on_update_check: Callable[[bool], None]
 
     def _init_signals(self) -> None:
         """Connect signals to their respective slots."""
@@ -115,7 +130,11 @@ class SignalsMixin:
         self.cb_quality_video.currentIndexChanged.connect(
             self.on_quality_set_video
         )
-        self.s_spinner_start[QtWidgets.QWidget].connect(self.on_spinner_start)
+        spinner_start = cast(
+            "Callable[[QtWidgets.QWidget], None]",
+            self.s_spinner_start,
+        )
+        spinner_start.connect(self.on_spinner_start)
         self.s_spinner_stop.connect(self.on_spinner_stop)
         self.s_item_advance.connect(self.on_progress_item)
         self.s_item_name.connect(self.on_progress_item_name)
@@ -221,7 +240,9 @@ class SignalsMixin:
             self.settings.data.quality_video = quality_data
         elif isinstance(quality_data, (int, str)):
             with contextlib.suppress(ValueError):
-                self.settings.data.quality_video = QualityVideo(quality_data)
+                self.settings.data.quality_video = QualityVideo(
+                    str(quality_data)
+                )
 
         self.settings.save()
         if self.tidal:
