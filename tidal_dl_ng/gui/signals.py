@@ -6,26 +6,31 @@ Handles all Qt signal definitions and connections.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, cast
 
-from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi import Quality
 
 from tidal_dl_ng.constants import QualityVideo
 from tidal_dl_ng.helper.gui import HumanProxyModel, get_results_media_item
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+    from typing import ParamSpec, Protocol, TypeVar
+
+    from PySide6 import QtCore, QtGui, QtWidgets
     from tidalapi import Album, Artist, Mix, Playlist, Track, Video
 
     from tidal_dl_ng.config import Settings, Tidal
     from tidal_dl_ng.gui.covers import CoverManager
     from tidal_dl_ng.gui.playlist import GuiPlaylistManager
     from tidal_dl_ng.gui.queue import GuiQueueManager
-    from tidal_dl_ng.gui.search import GuiSearchManager
+    from tidal_dl_ng.gui.search import GuiSearchManager, SearchMediaType
     from tidal_dl_ng.model.gui_data import StatusbarMessage
     from tidal_dl_ng.model.meta import ReleaseLatest
     from tidal_dl_ng.ui.info_tab_widget import InfoTabWidget
+
+    _P = ParamSpec("_P")
+    _R = TypeVar("_R")
 
     # Media types returned when resolving a results-tree row.
     type ResultMedia = Track | Video | Album | Artist | Playlist | Mix
@@ -33,10 +38,10 @@ if TYPE_CHECKING:
     # Quality values stored in the combo-box item data.
     type QualityValue = Quality | QualityVideo | int | str | None
 
-    class _ThreadItSlot(Protocol):
-        """Callable type for ``thread_it`` dispatching to a thread pool."""
+    class _UpdateCheckSlot(Protocol):
+        """Callable type for startup and manual update checks."""
 
-        def __call__(self, function: object, *args: object) -> None: ...
+        def __call__(self, on_startup: bool = True) -> None: ...
 
     class _VersionSlot(Protocol):
         """Callable type for ``on_version`` with all-optional args."""
@@ -55,7 +60,16 @@ class SignalsMixin:
     # Attributes provided by MainWindow at runtime.
     settings: Settings
     tidal: Tidal
-    thread_it: _ThreadItSlot
+
+    if TYPE_CHECKING:
+
+        def thread_it(
+            self,
+            function: Callable[_P, _R],
+            *args: _P.args,
+            **kwargs: _P.kwargs,
+        ) -> None:
+            """Dispatch a callable through the owning window's pool."""
 
     pb_download: QtWidgets.QPushButton
     pb_download_list: QtWidgets.QPushButton
@@ -116,7 +130,7 @@ class SignalsMixin:
     on_search_in_app: Callable[[str, str], None]
     on_search_in_browser: Callable[[str, str], None]
     on_download_results: Callable[[], None]
-    on_update_check: Callable[[bool], None]
+    on_update_check: _UpdateCheckSlot
 
     def _init_signals(self) -> None:
         """Connect signals to their respective slots."""
@@ -130,11 +144,7 @@ class SignalsMixin:
         self.cb_quality_video.currentIndexChanged.connect(
             self.on_quality_set_video
         )
-        spinner_start = cast(
-            "Callable[[QtWidgets.QWidget], None]",
-            self.s_spinner_start,
-        )
-        spinner_start.connect(self.on_spinner_start)
+        self.s_spinner_start.connect(self.on_spinner_start)
         self.s_spinner_stop.connect(self.on_spinner_stop)
         self.s_item_advance.connect(self.on_progress_item)
         self.s_item_name.connect(self.on_progress_item_name)
@@ -176,7 +186,7 @@ class SignalsMixin:
         """Run a search using the current query and selected type."""
         self.search_manager.search_populate_results(
             self.l_search.text(),
-            self.cb_search_type.currentData(),
+            cast("SearchMediaType | None", self.cb_search_type.currentData()),
         )
 
     def _on_download_results_triggered(self, *_args: object) -> None:

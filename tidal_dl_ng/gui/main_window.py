@@ -59,16 +59,16 @@ SETTINGS_WRITE_ERRORS: tuple[type[Exception], ...] = (
 
 def _qt_signal(
     *argument_types: type[object],
-) -> QtCore.SignalInstance:
-    """Create a Qt signal with its bound-instance type exposed to checkers.
+) -> QtCore.Signal:
+    """Create a Qt signal descriptor for installation on a Qt class.
 
     Args:
         *argument_types (type[object]): Runtime types carried by the signal.
 
     Returns:
-        SignalInstance: Signal descriptor installed by Qt's class metatype.
+        Signal: Descriptor bound to a ``SignalInstance`` on window objects.
     """
-    return cast("QtCore.SignalInstance", QtCore.Signal(*argument_types))
+    return QtCore.Signal(*argument_types)
 
 
 class MainWindow(
@@ -293,6 +293,22 @@ class MainWindow(
             settings.data.quality_video,
             fallback_index=0,
         )
+
+    @override
+    def on_update_check(self, on_startup: bool = True) -> None:
+        """Delegate update checks to the update feature mixin.
+
+        This concrete implementation reconciles the callable dependency
+        declared by ``SignalsMixin`` with the method supplied by
+        ``UpdatesMixin``.
+
+        Args:
+            on_startup (bool): Only show available updates when ``True``.
+
+        Returns:
+            None: The update mixin emits a dialog request when appropriate.
+        """
+        UpdatesMixin.on_update_check(self, on_startup)
 
     @staticmethod
     def _select_combo_value(

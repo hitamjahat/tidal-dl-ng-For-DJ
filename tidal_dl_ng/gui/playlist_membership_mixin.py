@@ -55,7 +55,6 @@ class PlaylistMembershipMixin:
         - Custom delegate for the playlists column
         - Signal connections
         """
-
         # 1. Create thread-safe cache
         self.playlist_cache = ThreadSafePlaylistCache()
 
@@ -127,7 +126,6 @@ class PlaylistMembershipMixin:
     def connect_playlist_signals(self) -> None:
         """Connect playlist-related signals (called from main signal setup)."""
         # Signal connections already done in init_playlist_membership_manager
-        pass
 
     def _load_playlists(self) -> None:
         """Load user playlists in background.
@@ -220,7 +218,7 @@ class PlaylistMembershipMixin:
 
     def on_playlist_loader_started(self) -> None:
         """Called when playlist loader starts."""
-        pass  # Silent
+        # Silent
 
     def on_playlist_cache_ready(self, cache: dict[str, set[str]]) -> None:
         """Called when playlist cache is ready.
@@ -228,7 +226,6 @@ class PlaylistMembershipMixin:
         Args:
             cache: Dict[track_id, Set[playlist_id]] from worker
         """
-
         # Update cache WITHOUT clearing (metadata was already loaded)
         # NOTE: We don't call clear() because metadata_ready signal was already
         # emitted and stored. We only update track→playlist mapping.
@@ -293,11 +290,11 @@ class PlaylistMembershipMixin:
             current: Number of playlists processed
             total: Total number of playlists
         """
-        pass  # Silent - no need to spam logs
+        # Silent - no need to spam logs
 
     def on_playlist_loader_finished(self) -> None:
         """Handle playlist loader finished (success or error)."""
-        pass  # Silent
+        # Silent
 
     def on_playlist_column_button_clicked(
         self, index: QtCore.QModelIndex
@@ -355,7 +352,7 @@ class PlaylistMembershipMixin:
             track_id: Track UUID
             playlist_id: Playlist UUID
         """
-        pass  # Silent - update handled by dialog
+        # Silent - update handled by dialog
 
     def on_track_removed_from_playlist(
         self, track_id: str, playlist_id: str
@@ -366,4 +363,4 @@ class PlaylistMembershipMixin:
             track_id: Track UUID
             playlist_id: Playlist UUID
         """
-        pass  # Silent - update handled by dialog
+        # Silent - update handled by dialog
