@@ -1,6 +1,3 @@
-I ran into this while working on my own project that uses hifi-api. I found that the trackManifests endpoint (which hits https://openapi.tidal.com/v2/trackManifests/{id}) still returns LOSSLESS and HI_RES correctly. You end up with either an MPEG DASH or HLS manifest, and then have to mux the segments, but the bonus is that it also supports DOLBY_ATMOS quality.
-
-Sorry for being so late, but this is an issue with the Client ID/secret. Because of spam from people who ran my API Tidal made the Android Auto Client ID only return HIGH quality - the workaround is to authenticate with the old Client ID/Secret and then switch to the Client ID/Secret for the normal Android client - bear in mind however ALL tracks will be returned in DASH.
 import asyncio
 import json
 import os

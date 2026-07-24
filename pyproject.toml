@@ -31,6 +31,7 @@ dependencies = [
   "ansi2html>=1.9.2",
   "pyside6>=6.11.1",
   "pyqtdarktheme-fork>=2.3.6",
+  "httpx>=0.28.0",
 ]
 
 [project.urls]

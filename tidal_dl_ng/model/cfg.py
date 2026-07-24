@@ -273,10 +273,21 @@ class HelpSettings:
 @dataclass_json
 @dataclass
 class Token:
-    """OAuth/PKCE authentication token persisted between sessions."""
+    """OAuth/PKCE authentication token persisted between sessions.
+
+    Supports both the legacy single-token format and the new HiFi-API
+    multi-account token format (stored as a list in token.json).
+    """
 
     token_type: str | None = None
     access_token: str | None = None
     refresh_token: str | None = None
     expiry_time: datetime.datetime | None = None
     is_pkce: bool = False
+
+    # HiFi-API token fields (used by the upgraded auth flow).
+    user_id: str | None = None
+    client_id: str | None = None
+    client_secret: str | None = None
+    expires_in: int = 0
+    created_at: str | None = None

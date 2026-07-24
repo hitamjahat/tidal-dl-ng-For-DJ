@@ -6,8 +6,6 @@ Handles Tidal authentication and session management.
 from __future__ import annotations
 
 import sys
-from concurrent.futures import Future
-from concurrent.futures import TimeoutError as FutureTimeoutError
 from typing import TYPE_CHECKING, Any, cast
 
 from requests.exceptions import RequestException
@@ -18,7 +16,6 @@ from tidal_dl_ng.logger import logger_gui
 
 if TYPE_CHECKING:
     from PySide6 import QtWidgets
-    from tidalapi.session import LinkLogin
 
     from tidal_dl_ng.config import Settings
 
@@ -115,10 +112,13 @@ class TidalSessionMixin:
             "Authentication status: token login failed or missing "
             "token; showing login dialog."
         )
-        return self._run_oauth_login()
+        return self._run_hifi_login()
 
-    def _run_oauth_login(self) -> bool:
-        """Drive the OAuth login dialog loop until success or cancel.
+    def _run_hifi_login(self) -> bool:
+        """Drive the HiFi-API OAuth device authorization login flow.
+
+        Uses the upgraded HiFi-API auth flow which provides lossless
+        (HI_RES) stream capability.
 
         Returns:
             ``True`` once the user completes the OAuth flow.
@@ -130,15 +130,28 @@ class TidalSessionMixin:
         parent = cast("QtWidgets.QWidget", self)
 
         while True:
-            login: LinkLogin
-            future: Future[object]
-            login, future = self.tidal.session.login_oauth()
-            expires_in = int(login.expires_in)
+            from tidal_dl_ng.helper.tidal_auth import (
+                run_device_authorization_flow_sync,
+            )
 
+            def fn_print(msg: str) -> None:
+                logger_gui.info(msg)
+
+            # Run the device authorization flow. This will open the
+            # browser for the user to authorize.
+            entry = run_device_authorization_flow_sync(fn_print)
+
+            if entry is None:
+                logger_gui.error(
+                    "Authentication status: login flow returned no token."
+                )
+                return False
+
+            # Show the dialog so the user knows to complete the flow.
             d_login = DialogLogin(
-                url_login=login.verification_uri_complete,
+                url_login="",
                 hint=hint,
-                expires_in=expires_in,
+                expires_in=3600,
                 parent=parent,
             )
 
@@ -149,52 +162,18 @@ class TidalSessionMixin:
                 )
                 sys.exit(1)
 
-            if self._finalize_oauth(future):
+            # Load the token into the session.
+            self.tidal._load_hifi_token_into_session(entry)
+
+            if self.tidal.session.check_login():
+                logger_gui.info("Login successful. Have fun!")
+                logger_gui.info(
+                    "Authentication status: authenticated via "
+                    "HiFi-API login dialog."
+                )
                 return True
 
             hint = "Login authorization was not completed. Please try again."
-
-    def _finalize_oauth(self, future: Future[object]) -> bool:
-        """Wait for OAuth polling and finalize the session.
-
-        Args:
-            future: The background polling future from ``login_oauth``.
-
-        Returns:
-            ``True`` when the session was successfully authenticated.
-        """
-        try:
-            # Wait briefly for the background polling thread to complete
-            # in case the user clicked OK immediately after authorizing.
-            try:
-                future.result(timeout=4.0)
-            except FutureTimeoutError:
-                logger_gui.debug(
-                    "Background login polling didn't complete within "
-                    "timeout. Proceeding to finalize check."
-                )
-            finally:
-                future.cancel()
-
-            result = self.tidal.finalize_and_enable_hires()
-            if result:
-                logger_gui.info("Login successful. Have fun!")
-                logger_gui.info(
-                    "Authentication status: authenticated via login dialog."
-                )
-            else:
-                logger_gui.warning(
-                    "Login flow finished but authentication was not "
-                    "finalized."
-                )
-        except LOGINERROR as error:
-            logger_gui.exception(
-                "Login not successful. Try again... Error: %s",
-                error,
-            )
-            return False
-        else:
-            return result
 
     def on_logout(self) -> None:
         """Log out from TIDAL and close the application."""

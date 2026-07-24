@@ -11,6 +11,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, cast
 from urllib.parse import urlparse
 
+# Ensure UTF-8 output on Windows so Rich spinners (Braille) don't crash
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.platform == "win32" and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 import typer
 from rich.console import Console, Group
 from rich.live import Live
@@ -308,9 +314,12 @@ def _download(
     settings: Settings = _get_tidal(ctx).settings
     handling_app: HandlingApp = HandlingApp()
 
+    # Use ASCII-only spinner on Windows to avoid cp1252 UnicodeEncodeError
+    _spinner = "line" if sys.platform == "win32" else "dots"
+
     progress: Progress = Progress(
         TextColumn("[progress.description]{task.description}"),
-        SpinnerColumn(),
+        SpinnerColumn(spinner_name=_spinner),
         BarColumn(),
         TaskProgressColumn(),
         refresh_per_second=20,
@@ -321,7 +330,7 @@ def _download(
 
     progress_overall = Progress(
         TextColumn("[progress.description]{task.description}"),
-        SpinnerColumn(),
+        SpinnerColumn(spinner_name=_spinner),
         BarColumn(),
         TaskProgressColumn(),
         refresh_per_second=20,

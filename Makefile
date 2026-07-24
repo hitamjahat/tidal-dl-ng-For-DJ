@@ -63,13 +63,16 @@ help:
 .PHONY: gui
 gui: ## Build GUI app
 	@poetry run python -m nuitka \
+		--standalone \
+		--enable-plugin=pyside6 \
+		--include-data-dir=tidal_dl_ng/ui=tidal_dl_ng/ui \
 		--macos-app-version=$(APP_VERSION) \
 		--file-version=$(APP_VERSION) \
 		--product-version=$(APP_VERSION) \
 		--macos-app-name=$(APP_NAME) \
 		--output-filename=$(APP_NAME) \
 		--product-name=$(APP_NAME) \
-		tidal_dl_ng/gui.py
+		tidal_dl_ng/gui/activate.py
 
 .PHONY: gui-windows
 gui-windows: gui ## Build GUI app

@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import time
 from functools import partial
-from http.client import HTTPConnection, HTTPException, HTTPSConnection
+from http.client import HTTPException
 from itertools import islice
 from pathlib import Path
 from threading import Lock
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urljoin, urlsplit
 
+import requests
 from PySide6 import QtCore, QtGui
 from tidalapi.album import Album
 
@@ -289,8 +290,7 @@ class CoverManager:
             tuple[int, bytes, str | None]: Status, body, and redirect URL.
 
         Raises:
-            HTTPException: If the HTTP exchange cannot be completed.
-            OSError: If the network connection fails.
+            requests.RequestException: If the HTTP exchange fails.
             ValueError: If the URL is unsupported or malformed.
         """
         parsed_url = urlsplit(cover_url)
@@ -301,50 +301,24 @@ class CoverManager:
             message = "Cover URL does not contain a hostname."
             raise ValueError(message)
 
-        connection_type: type[HTTPConnection] = (
-            HTTPSConnection if parsed_url.scheme == "https" else HTTPConnection
-        )
-        connection = connection_type(
-            parsed_url.hostname,
-            port=parsed_url.port,
+        response = requests.get(
+            cover_url,
+            headers={"User-Agent": "tidal-dl-ng-for-dj"},
             timeout=REQUESTS_TIMEOUT_SEC,
+            stream=True,
         )
-        request_target = parsed_url.path or "/"
-        if parsed_url.query:
-            request_target = f"{request_target}?{parsed_url.query}"
-
         try:
-            connection.request(
-                "GET",
-                request_target,
-                headers={"User-Agent": "tidal-dl-ng-for-dj"},
+            response_data = response.raw.read(MAX_COVER_BYTES + 1)
+            if len(response_data) > MAX_COVER_BYTES:
+                message = "Cover response exceeds the maximum allowed size."
+                raise ValueError(message)
+            return (
+                response.status_code,
+                response_data,
+                response.headers.get("Location"),
             )
-            response = connection.getresponse()
-            try:
-                content_length = response.getheader("Content-Length")
-                if (
-                    content_length is not None
-                    and int(content_length) > MAX_COVER_BYTES
-                ):
-                    message = (
-                        "Cover response exceeds the maximum allowed size."
-                    )
-                    raise ValueError(message)
-                response_data = response.read(MAX_COVER_BYTES + 1)
-                if len(response_data) > MAX_COVER_BYTES:
-                    message = (
-                        "Cover response exceeds the maximum allowed size."
-                    )
-                    raise ValueError(message)
-                return (
-                    response.status,
-                    response_data,
-                    response.getheader("Location"),
-                )
-            finally:
-                response.close()
         finally:
-            connection.close()
+            response.close()
 
     def _handle_cover_bytes(
         self,

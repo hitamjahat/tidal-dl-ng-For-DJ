@@ -7,7 +7,7 @@ network and download work is dispatched through ``QThreadPool`` workers.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ParamSpec, TypeVar, cast, override
+from typing import TYPE_CHECKING, ParamSpec, TypeVar, cast
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi.media import Quality
@@ -22,7 +22,9 @@ from tidal_dl_ng.gui.downloads import DownloadsMixin
 from tidal_dl_ng.gui.history import HistoryMixin
 from tidal_dl_ng.gui.initialization import InitializationMixin
 from tidal_dl_ng.gui.playlist import GuiPlaylistManager
-from tidal_dl_ng.gui.playlist_membership_mixin import PlaylistMembershipMixin
+from tidal_dl_ng.gui.playlist_membership_mixin import (
+    PlaylistMembershipMixin,
+)
 from tidal_dl_ng.gui.progress import ProgressMixin
 from tidal_dl_ng.gui.queue import GuiQueueManager
 from tidal_dl_ng.gui.search import GuiSearchManager
@@ -59,16 +61,21 @@ SETTINGS_WRITE_ERRORS: tuple[type[Exception], ...] = (
 
 def _qt_signal(
     *argument_types: type[object],
-) -> QtCore.Signal:
+) -> QtCore.SignalInstance:
     """Create a Qt signal descriptor for installation on a Qt class.
 
     Args:
-        *argument_types (type[object]): Runtime types carried by the signal.
+        *argument_types (type[object]): Runtime types carried by the
+            signal.
 
     Returns:
-        Signal: Descriptor bound to a ``SignalInstance`` on window objects.
+        SignalInstance: Descriptor bound to a ``SignalInstance`` on
+            window objects at runtime.
     """
-    return QtCore.Signal(*argument_types)
+    return cast(
+        "QtCore.SignalInstance",
+        QtCore.Signal(*argument_types),
+    )
 
 
 class MainWindow(
@@ -113,27 +120,62 @@ class MainWindow(
         Callable[[str, Mapping[str, object] | None], None],
     ]
 
-    s_spinner_start = _qt_signal(QtWidgets.QWidget)
-    s_spinner_stop = _qt_signal()
-    s_track_extras_ready = _qt_signal(str, object)
-    s_invoke_callback = _qt_signal(str, object)
-    s_item_advance = _qt_signal(float)
-    s_item_name = _qt_signal(str)
-    s_list_name = _qt_signal(str)
-    s_list_advance = _qt_signal(float)
-    s_pb_reset = _qt_signal()
-    s_populate_tree_lists = _qt_signal(dict)
-    s_populate_folder_children = _qt_signal(object, list, list)
-    s_statusbar_message = _qt_signal(object)
-    s_tr_results_add_top_level_item = _qt_signal(object)
-    s_settings_save = _qt_signal()
-    s_pb_reload_status = _qt_signal(bool)
-    s_update_check = _qt_signal(bool)
-    s_update_show = _qt_signal(bool, bool, object)
-    s_queue_download_item_downloading = _qt_signal(object)
-    s_queue_download_item_finished = _qt_signal(object)
-    s_queue_download_item_failed = _qt_signal(object)
-    s_queue_download_item_skipped = _qt_signal(object)
+    # Qt signal descriptors — assigned as class attributes so Qt's
+    # metaclass binds each to a ``SignalInstance`` per instance.
+    # The type annotations match the ``SignalInstance`` declarations
+    # in the mixin classes; at runtime Qt's metaclass converts each
+    # ``Signal`` descriptor into a per-instance ``SignalInstance``.
+    s_spinner_start: QtCore.SignalInstance = _qt_signal(QtWidgets.QWidget)
+    s_spinner_stop: QtCore.SignalInstance = _qt_signal()
+    s_track_extras_ready: QtCore.SignalInstance = _qt_signal(str, object)
+    s_invoke_callback: QtCore.SignalInstance = _qt_signal(str, object)
+    s_item_advance: QtCore.SignalInstance = _qt_signal(float)
+    s_item_name: QtCore.SignalInstance = _qt_signal(str)
+    s_list_name: QtCore.SignalInstance = _qt_signal(str)
+    s_list_advance: QtCore.SignalInstance = _qt_signal(float)
+    s_pb_reset: QtCore.SignalInstance = _qt_signal()
+    s_populate_tree_lists: QtCore.SignalInstance = _qt_signal(dict)
+    s_populate_folder_children: QtCore.SignalInstance = _qt_signal(
+        object, list, list
+    )
+    s_statusbar_message: QtCore.SignalInstance = _qt_signal(object)
+    s_tr_results_add_top_level_item: QtCore.SignalInstance = _qt_signal(object)
+    s_settings_save: QtCore.SignalInstance = _qt_signal()
+    s_pb_reload_status: QtCore.SignalInstance = _qt_signal(bool)
+    s_update_check: QtCore.SignalInstance = _qt_signal(bool)
+    s_update_show: QtCore.SignalInstance = _qt_signal(bool, bool, object)
+    s_queue_download_item_downloading: QtCore.SignalInstance = _qt_signal(
+        object
+    )
+    s_queue_download_item_finished: QtCore.SignalInstance = _qt_signal(object)
+    s_queue_download_item_failed: QtCore.SignalInstance = _qt_signal(object)
+    s_queue_download_item_skipped: QtCore.SignalInstance = _qt_signal(object)
+
+    def setParent(  # noqa: D401 - Qt override
+        self,
+        parent: QtCore.QObject | None,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        """Override ``QObject.setParent`` to resolve MRO ambiguity.
+
+        ``Ui_MainWindow`` is a plain class (not a ``QObject`` subclass),
+        so Pyright flags the multiple inheritance from ``QMainWindow``
+        and ``Ui_MainWindow`` as an incompatible ``setParent`` override.
+        This explicit override silences the false positive while
+        delegating to the standard Qt implementation.
+
+        Args:
+            parent: The new parent object, or ``None`` to orphan.
+            *args: Extra positional arguments forwarded to Qt.
+            **kwargs: Extra keyword arguments forwarded to Qt.
+        """
+        QtWidgets.QWidget.setParent(
+            self,
+            cast("QtWidgets.QWidget | None", parent),
+            *args,
+            **kwargs,
+        )
 
     def __init__(self, tidal: Tidal | None = None) -> None:
         """Initialize the main window and all coordinated components.
@@ -145,9 +187,11 @@ class MainWindow(
             None: A fully initialized application window is created.
         """
         super().__init__()
+        # ``Ui_MainWindow.setupUi`` is auto-generated without type
+        # annotations; cast it to a typed callable for type safety.
         setup_ui = cast(
             "Callable[[Ui_MainWindow, QtWidgets.QMainWindow], None]",
-            Ui_MainWindow.setupUi,
+            getattr(Ui_MainWindow, "setupUi"),
         )
         setup_ui(self, self)
         self.setWindowTitle("TIDAL Downloader Next Generation")
@@ -227,7 +271,6 @@ class MainWindow(
         self.s_invoke_callback.connect(self._on_invoke_callback)
         XStream.stdout().message_written.connect(self._log_output)
 
-    @override
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """Persist geometry and stop pending application work before closing.
 
@@ -293,22 +336,6 @@ class MainWindow(
             settings.data.quality_video,
             fallback_index=0,
         )
-
-    @override
-    def on_update_check(self, on_startup: bool = True) -> None:
-        """Delegate update checks to the update feature mixin.
-
-        This concrete implementation reconciles the callable dependency
-        declared by ``SignalsMixin`` with the method supplied by
-        ``UpdatesMixin``.
-
-        Args:
-            on_startup (bool): Only show available updates when ``True``.
-
-        Returns:
-            None: The update mixin emits a dialog request when appropriate.
-        """
-        UpdatesMixin.on_update_check(self, on_startup)
 
     @staticmethod
     def _select_combo_value(

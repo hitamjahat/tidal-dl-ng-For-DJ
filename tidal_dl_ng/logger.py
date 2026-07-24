@@ -75,6 +75,15 @@ class XStream(QtCore.QObject):
 
     message_written: QtCore.Signal = QtCore.Signal(str)
 
+    def __init__(self, *, is_stderr: bool = False) -> None:
+        """Initialize the XStream.
+
+        Args:
+            is_stderr: True if this is the stderr stream.
+        """
+        super().__init__()
+        self.is_stderr = is_stderr
+
     def flush(self) -> None:
         """Flush the stream (no-op for signal-based streams)."""
 
@@ -87,7 +96,7 @@ class XStream(QtCore.QObject):
         return -1
 
     def write(self, msg: str) -> int:
-        """Write the message to the Qt signal.
+        """Write the message to the Qt signal and original console stream.
 
         Args:
             msg: The message to write.
@@ -95,6 +104,12 @@ class XStream(QtCore.QObject):
         Returns:
             The number of characters written.
         """
+        if self.is_stderr:
+            if sys.__stderr__ is not None:
+                sys.__stderr__.write(msg)
+        elif sys.__stdout__ is not None:
+            sys.__stdout__.write(msg)
+
         if not self.signalsBlocked():
             self.message_written.emit(msg)
         return len(msg)
@@ -107,7 +122,7 @@ class XStream(QtCore.QObject):
             The singleton XStream for stdout.
         """
         if not cls._stdout:
-            cls._stdout = cls()
+            cls._stdout = cls(is_stderr=False)
             sys.stdout = cast("TextIOWrapper", cls._stdout)
         return cls._stdout
 
@@ -119,7 +134,7 @@ class XStream(QtCore.QObject):
             The singleton XStream for stderr.
         """
         if not cls._stderr:
-            cls._stderr = cls()
+            cls._stderr = cls(is_stderr=True)
             sys.stderr = cast("TextIOWrapper", cls._stderr)
         return cls._stderr
 
@@ -156,9 +171,7 @@ def _build_formatter() -> coloredlogs.ColoredFormatter:
         coloredlogs.DEFAULT_LEVEL_STYLES.copy()
     )
     styles["info"] = {"color": "green"}
-    return coloredlogs.ColoredFormatter(
-        fmt=LOG_FMT, level_styles=styles
-    )
+    return coloredlogs.ColoredFormatter(fmt=LOG_FMT, level_styles=styles)
 
 
 def _make_gui_logger() -> logging.Logger:

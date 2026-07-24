@@ -261,7 +261,7 @@ class Tidal(BaseConfig[ModelToken], metaclass=SingletonMeta):
 
         return True
 
-    def login_token(self, do_pkce: bool | None = None) -> bool:  # noqa: FBT001
+    def login_token(self, do_pkce: bool | None = None) -> bool:
         """Load a stored OAuth/PKCE token.
 
         Args:
@@ -308,7 +308,23 @@ class Tidal(BaseConfig[ModelToken], metaclass=SingletonMeta):
                     expiry_time,
                     is_pkce=self.is_pkce,
                 )
-            except OSError:
+
+                # If session check fails, try using the refresh token
+                if result and not self.session.check_login() and refresh_token:
+                    print("Access token invalid. Attempting to refresh...")
+                    if self.session.token_refresh(refresh_token):
+                        self.token_persist()
+                        result = self.session.load_oauth_session(
+                            self.session.token_type,
+                            self.session.access_token,
+                            self.session.refresh_token,
+                            self.session.expiry_time,
+                            is_pkce=self.is_pkce,
+                        )
+                    else:
+                        result = False
+            except (OSError, Exception) as e:  # noqa: BLE001
+                print(f"Error loading or refreshing session: {e}")
                 result = False
 
             if result and self.is_pkce:
@@ -431,12 +447,23 @@ class Tidal(BaseConfig[ModelToken], metaclass=SingletonMeta):
         ):
             return True
 
-        # Use a well-known track ID that supports lossless.
+        # Check user subscription highestSoundQuality
         try:
-            track = self.session.track("493546859", with_album=True)
+            sub = self.session.request.basic_request(
+                "GET", f"users/{self.session.user.id}/subscription"
+            ).json()
+            highest_quality = sub.get("highestSoundQuality", "HIGH")
+        except Exception:  # noqa: BLE001
+            highest_quality = "HI_RES"
+
+        # Use a well-known track ID that supports lossless (Billie Jean).
+        try:
+            track = self.session.track("1781887", with_album=True)
             stream = track.get_stream()
             quality = stream.audio_quality
-        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             print(f"WARNING: Could not verify lossless capability: {exc}")
             # Don't block login — the token may still work for some tracks.
             return True
@@ -454,6 +481,10 @@ class Tidal(BaseConfig[ModelToken], metaclass=SingletonMeta):
             ),
         )
         if quality in lossless_tiers:
+            return True
+
+        # If user's plan doesn't support lossless, don't flag as capped
+        if highest_quality not in ("HI_RES", "LOSSLESS"):
             return True
 
         print(
@@ -503,7 +534,7 @@ class Tidal(BaseConfig[ModelToken], metaclass=SingletonMeta):
 
     def restore_normal_session(
         self,
-        force: bool = False,  # noqa: FBT001, FBT002
+        force: bool = False,
     ) -> bool:
         """Restores the shared session to the original user credentials.
 
@@ -603,9 +634,132 @@ class Tidal(BaseConfig[ModelToken], metaclass=SingletonMeta):
         """
         Path(self.file_path).unlink(missing_ok=True)
         self.token_from_storage = False
-        del self.session
+
+        # Reset session instead of deleting it to avoid AttributeErrors
+        tidal_config = Config(item_limit=10000)
+        self.session = Session(tidal_config)
+        self.original_client_id = self.session.config.client_id
+        self.original_client_secret = self.session.config.client_secret
+        self.is_atmos_session = False
 
         return True
+
+    def login_hifi_api(self, fn_print: Callable[[str], None]) -> bool:
+        """Perform login using the HiFi-API OAuth 2.0 Device Authorization flow.
+
+        This is the upgraded auth flow that uses direct OAuth 2.0 with
+        custom credentials, bypassing ``tidalapi``'s ``login_pkce()``
+        which has known issues with lossless stream retrieval.
+
+        The flow:
+          1. Tries to load and verify an existing token from storage.
+          2. If no valid token exists, runs the device authorization flow.
+          3. Verifies the token can retrieve HI_RES lossless streams.
+
+        Args:
+            fn_print: Callback used to print status messages to the user.
+
+        Returns:
+            bool: True if the user is logged in with a valid token.
+        """
+        from tidal_dl_ng.helper.tidal_auth import (
+            get_valid_token_sync,
+            run_device_authorization_flow_sync,
+            verify_existing_token_sync,
+        )
+
+        # Try to use an existing token from storage.
+        fn_print("Checking for existing TIDAL token...")
+        token_result = get_valid_token_sync()
+
+        if token_result is not None:
+            access_token, entry = token_result
+            fn_print(
+                f"Found token for user ID: {entry.get('userID', 'unknown')}"
+            )
+
+            # Verify the token is still valid.
+            if verify_existing_token_sync(access_token):
+                fn_print("Token is valid. Loading into session...")
+                self._load_hifi_token_into_session(entry)
+                fn_print("Authentication successful!")
+                return True
+
+            fn_print("Token is invalid or expired. Attempting refresh...")
+            # Try with forced refresh.
+            token_result = get_valid_token_sync(force_refresh=True)
+            if token_result is not None:
+                access_token, entry = token_result
+                if verify_existing_token_sync(access_token):
+                    fn_print("Token refreshed successfully.")
+                    self._load_hifi_token_into_session(entry)
+                    return True
+
+        # No valid token — run the interactive device authorization flow.
+        fn_print(
+            "No valid token found. Starting OAuth device authorization "
+            "flow..."
+        )
+        entry = run_device_authorization_flow_sync(fn_print)
+
+        if entry is not None:
+            self._load_hifi_token_into_session(entry)
+            fn_print("Authentication successful!")
+            return True
+
+        fn_print("Authentication failed. Please try again.")
+        return False
+
+    def _load_hifi_token_into_session(self, entry: dict[str, object]) -> None:
+        """Load a HiFi-API token entry into the tidalapi session.
+
+        Args:
+            entry: The token entry dictionary containing access_token,
+                refresh_token, client_ID, client_secret, etc.
+        """
+        access_token = str(entry.get("access_token", ""))
+        refresh_token = str(entry.get("refresh_token", ""))
+        token_type = str(entry.get("token_type", "Bearer"))
+        client_id = str(entry.get("client_ID", ""))
+        client_secret = str(entry.get("client_secret", ""))
+
+        # Set the PKCE client credentials for lossless streams.
+        self.session.config.client_id = client_id
+        self.session.config.client_secret = client_secret
+        self.is_pkce = True
+        self.original_client_id = client_id
+        self.original_client_secret = client_secret
+
+        # Load the token into the session.
+        self.session.load_oauth_session(
+            token_type,
+            access_token,
+            refresh_token,
+            None,
+            is_pkce=True,
+        )
+
+        # Persist the token in the legacy format for compatibility.
+        self.set_option("token_type", token_type)
+        self.set_option("access_token", access_token)
+        self.set_option("refresh_token", refresh_token)
+        self.set_option("is_pkce", True)
+        self.save()
+
+    def login(self, fn_print: Callable[[str], None]) -> bool:
+        """Perform the full login flow using the upgraded HiFi-API auth.
+
+        This method now uses the HiFi-API OAuth 2.0 Device Authorization
+        flow, which provides lossless (HI_RES) stream capability.
+
+        Args:
+            fn_print: Callback used to print status messages to the user.
+
+        Returns:
+            bool: True if the user is logged in with a valid (lossless-capable)
+                token by the end of the flow.
+        """
+        return self.login_hifi_api(fn_print)
 
     def is_authentication_error(self, error: Exception) -> bool:
         """Check if an error is related to authentication/OAuth issues.

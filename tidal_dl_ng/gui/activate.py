@@ -20,6 +20,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi.exceptions import TidalAPIError
 
 from tidal_dl_ng import __name_display__, __version__
+from tidal_dl_ng.logger import enable_debug_and_warnings
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -344,6 +345,12 @@ def gui_activate(tidal: Tidal | None = None) -> Never:
     """
     application = _get_application()
     application.setQuitOnLastWindowClosed(True)
+
+    # Always enable verbose debug/warning logging in a frozen (compiled)
+    # executable so every error is captured in app.log. In source mode
+    # the --debug / -d flag activates the same behaviour.
+    if _is_frozen_application() or "--debug" in sys.argv or "-d" in sys.argv:
+        enable_debug_and_warnings(enabled=True)
 
     _setup_application_metadata(application)
     qdarktheme.setup_theme(
