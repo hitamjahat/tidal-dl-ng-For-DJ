@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from dataclasses_json import DataClassJsonMixin
+from dataclasses_json import dataclass_json
 from tidalapi.media import Quality
 
 from tidal_dl_ng.constants import (
@@ -9,13 +9,17 @@ from tidal_dl_ng.constants import (
     QualityVideo,
 )
 
+@dataclass_json
 @dataclass
-class Settings(DataClassJsonMixin):
+class Settings:
     lyrics_embed: bool
     lyrics_file: bool
     use_primary_album_artist: bool
+    api_key_index: int
+    album_info_save: bool
     video_download: bool
     skip_existing: bool
+    multi_thread: bool
     download_delay: bool
     download_base_path: str
     quality_audio: Quality
@@ -54,12 +58,12 @@ class Settings(DataClassJsonMixin):
     api_rate_limit_batch_size: int
     api_rate_limit_delay_sec: float
 
-    def to_dict(self, encode_json: bool = False) -> dict[str, object]: ...
+    def to_dict(self, *, encode_json: bool = False) -> dict[str, object]: ...
 
+@dataclass_json
 @dataclass
-class HelpSettings(DataClassJsonMixin):
+class HelpSettings:
     skip_existing: str = ...
-    album_cover_save: str = ...
     lyrics_embed: str = ...
     use_primary_album_artist: str = ...
     lyrics_file: str = ...
@@ -102,4 +106,4 @@ class HelpSettings(DataClassJsonMixin):
     api_rate_limit_batch_size: str = ...
     api_rate_limit_delay_sec: str = ...
 
-    def to_dict(self, encode_json: bool = False) -> dict[str, str]: ...
+    def to_dict(self, *, encode_json: bool = False) -> dict[str, str]: ...

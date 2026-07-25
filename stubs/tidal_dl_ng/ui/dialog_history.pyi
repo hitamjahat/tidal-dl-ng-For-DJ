@@ -1,5 +1,3 @@
-"""Stub for generated Ui_DialogHistory."""
-
 from PySide6.QtWidgets import (
     QDialog,
     QLabel,
@@ -9,8 +7,6 @@ from PySide6.QtWidgets import (
 )
 
 class Ui_DialogHistory:
-    """UI for history dialog."""
-
     def setupUi(self, dialog: QDialog) -> None: ...
     def retranslateUi(self, dialog: QDialog) -> None: ...
     tw_history: QTreeWidget

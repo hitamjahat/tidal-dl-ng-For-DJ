@@ -1,20 +1,18 @@
-"""Stub for generated Ui_DialogSettings."""
-
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QGroupBox,
     QLabel,
     QLineEdit,
     QListWidget,
     QPushButton,
     QSpinBox,
     QStackedWidget,
+    QWidget,
 )
 
 class Ui_DialogSettings:
-    """UI for settings dialog."""
-
     def setupUi(self, dialog: QDialog) -> None: ...
     def retranslateUi(self, dialog: QDialog) -> None: ...
     lw_categories: QListWidget
@@ -83,9 +81,13 @@ class Ui_DialogSettings:
     l_icon_filename_delimiter_album_artist: QLabel
     l_icon_album_track_num_pad_min: QLabel
     l_icon_downloads_concurrent_max: QLabel
-    lw_categories: QListWidget
-    sw_categories: QStackedWidget
-    le_download_base_path: QLineEdit
-    le_path_binary_ffmpeg: QLineEdit
-    pb_download_base_path: QPushButton
-    pb_path_binary_ffmpeg: QPushButton
+    gb_choices: QGroupBox
+    gb_delimiters: QGroupBox
+    gb_flags: QGroupBox
+    gb_numbers: QGroupBox
+    gb_path: QGroupBox
+    page_delimiters: QWidget
+    page_flags: QWidget
+    page_numbers: QWidget
+    page_paths: QWidget
+    page_quality: QWidget

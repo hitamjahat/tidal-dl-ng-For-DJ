@@ -1,30 +1,19 @@
-"""Stub for mutagen.mp4."""
+from typing import Self
+
+from pathlib import Path
 
 from mutagen import FileType, MutagenError
-
-MP4TagsValueType = (
-    str
-    | list[str]
-    | list[tuple[int, int]]
-    | list[int]
-    | list[MP4FreeForm]
-    | list[MP4Cover]
-    | list[bytes]
-    | bytes
-)
 
 class MP4FreeForm(bytes):
     def __new__(
         cls, data: bytes, dataformat: int = ..., version: int = ...
-    ) -> "MP4FreeForm": ...
+    ) -> Self: ...
 
 class MP4Cover(bytes):
     FORMAT_JPEG: int
     FORMAT_PNG: int
     imageformat: int
-    def __new__(
-        cls, data: bytes, imageformat: int = ...
-    ) -> "MP4Cover": ...
+    def __new__(cls, data: bytes, imageformat: int = ...) -> Self: ...
 
 class MP4Tags:
     def __setitem__(self, key: str, value: MP4TagsValueType) -> None: ...
@@ -36,12 +25,21 @@ class MP4Tags:
     def __init__(self) -> None: ...
 
 class MP4(FileType):
-    tags: MP4Tags | None
-    MP4Tags: type[MP4Tags]
+    @property
+    def tags(self) -> MP4Tags | None: ...
     error: type[MutagenError]
     def add_tags(self) -> None: ...
     def save(
-        self,
-        filename: str | None = ...,
-        padding: object = ...,
+        self, filething: str | Path | None = ..., **kwargs: object
     ) -> None: ...
+
+type MP4TagsValueType = (
+    str
+    | list[str]
+    | list[tuple[int, int]]
+    | list[int]
+    | list[MP4FreeForm]
+    | list[MP4Cover]
+    | list[bytes]
+    | bytes
+)

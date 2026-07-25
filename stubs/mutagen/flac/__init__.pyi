@@ -1,6 +1,7 @@
-from mutagen._vorbis import VCommentDict
-from mutagen import FileType, MutagenError
 from pathlib import Path
+
+from mutagen import FileType, MutagenError
+from mutagen._vorbis import VCommentDict
 
 class FLACNoHeaderError(MutagenError): ...
 class FLACVorbisError(MutagenError): ...
@@ -9,21 +10,29 @@ class Picture:
     type: int
     data: bytes
     mime: str
+    code: int
     def __init__(self) -> None: ...
+    def load(self, fileobj: object) -> None: ...
+    def write(self, fileobj: object) -> None: ...
 
 class VCFLACDict(VCommentDict):
     code: int
     def load(
-        self, data: bytes, errors: str = "strict", framing: bool = True
+        self, fileobj: bytes, errors: str = "strict", framing: bool = True
     ) -> None: ...
     def write(self, framing: bool = True) -> bytes: ...
 
 class FLAC(FileType):
-    tags: VCFLACDict
+    @property
+    def tags(self) -> VCFLACDict | None: ...
     metadata_blocks: list[object]
     def add_tags(self) -> None: ...
     def clear_pictures(self) -> None: ...
     def add_picture(self, picture: Picture) -> None: ...
     def save(
-        self, filename: str | Path | None = None, padding: object = None
+        self,
+        filething: str | Path | None = None,
+        deleteid3: bool = False,
+        padding: object = None,
+        **kwargs: object,
     ) -> None: ...

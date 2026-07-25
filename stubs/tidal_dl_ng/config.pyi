@@ -1,22 +1,25 @@
-"""Stub for tidal_dl_ng.config."""
+from typing import Protocol, runtime_checkable
 
 import threading
 from collections.abc import Callable
-from typing import Generic, TypeVar
 
 from tidalapi.session import Session
 
 from tidal_dl_ng.model.cfg import Settings as ModelSettings
 from tidal_dl_ng.model.cfg import Token as ModelToken
 
-TConfigData = TypeVar("TConfigData")
+@runtime_checkable
+class JsonSerializable(Protocol):
+    def to_json(self, *args: object, **kwargs: object) -> str: ...
+    @classmethod
+    def from_json(
+        cls, *args: object, **kwargs: object
+    ) -> JsonSerializable: ...
 
-class BaseConfig(Generic[TConfigData]):
-    """Base class for JSON-backed configuration objects."""
-
-    data: TConfigData
+class BaseConfig[T]:
+    data: T
     file_path: str
-    cls_model: type[TConfigData]
+    cls_model: type[T]
     path_base: str
 
     def save(self, config_to_compare: str | None = None) -> None: ...
@@ -24,33 +27,25 @@ class BaseConfig(Generic[TConfigData]):
     def read(self, path: str) -> bool: ...
 
 class Settings(BaseConfig[ModelSettings]):
-    """Singleton holding user-configurable application settings."""
-
-    def __init__(self) -> None: ...
-
-class Token(BaseConfig[ModelToken]):
-    """OAuth/PKCE authentication token persisted between sessions."""
-
     def __init__(self) -> None: ...
 
 class Tidal(BaseConfig[ModelToken]):
-    """Manages the TIDAL API session, token persistence, and login flows."""
-
     session: Session
     token_from_storage: bool
     settings: Settings
     is_pkce: bool
 
     def __init__(self, settings: Settings | None = None) -> None: ...
-    def login(self, fn_print: Callable[[str], None] | None = None) -> bool: ...
+    def login(self, fn_print: Callable[[str], None]) -> bool: ...
     def login_token(self, do_pkce: bool | None = None) -> bool: ...
+    def login_finalize(self) -> bool: ...
+    def login_hifi_api(self, fn_print: Callable[[str], None]) -> bool: ...
     def finalize_and_enable_hires(self) -> bool: ...
+    def verify_lossless_capability(self) -> bool: ...
     def logout(self) -> bool: ...
-    def settings_apply(self) -> None: ...
+    def settings_apply(self, settings: Settings | None = None) -> bool: ...
 
-class HandlingApp:
-    """Holds application-wide control events for abort/run signalling."""
-
+class HandlingApp:  # pylint: disable=too-few-public-methods
     event_abort: threading.Event
     event_run: threading.Event
 

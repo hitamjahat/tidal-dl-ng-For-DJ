@@ -1,8 +1,9 @@
+from typing import Self
+
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Self
 
 from tidalapi.media import Track, Video
 from tidalapi.request import Requests

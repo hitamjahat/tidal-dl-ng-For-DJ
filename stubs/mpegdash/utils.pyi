@@ -1,22 +1,19 @@
-from typing import TypeVar
 from xml.dom.minidom import Element
 
-_T = TypeVar("_T")
-
-def parse_attr_value(
+def parse_attr_value[T](
     xmlnode: Element,
     attr_name: str,
-    value_type: type[_T] | list[type[_T]],
-) -> _T | None: ...
-def parse_child_nodes(
+    value_type: type[T] | list[type[T]],
+) -> T | None: ...
+def parse_child_nodes[T](
     xmlnode: Element,
     tag_name: str,
-    node_type: type[_T] | str,
-) -> list[_T] | None: ...
-def parse_node_value(
+    node_type: type[T] | str,
+) -> list[T] | None: ...
+def parse_node_value[T](
     xmlnode: Element,
-    value_type: type[_T],
-) -> _T | None: ...
+    value_type: type[T],
+) -> T | None: ...
 def write_child_node(
     xmlnode: Element,
     tag_name: str,

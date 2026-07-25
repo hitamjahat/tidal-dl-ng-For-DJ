@@ -180,7 +180,7 @@ def _setup_windows_app_id() -> None:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID,
         )
         result = set_app_user_model_id(app_user_model_id)
-    except (AttributeError, OSError):
+    except AttributeError, OSError:
         logger.exception(
             "Unable to set Windows AppUserModelID: %s",
             app_user_model_id,
@@ -270,7 +270,7 @@ def _setup_signal_handlers(
     try:
         signal.signal(signal.SIGINT, _handle_shutdown)
         signal.signal(signal.SIGTERM, _handle_shutdown)
-    except (OSError, ValueError):
+    except OSError, ValueError:
         logger.debug(
             "Process signal handlers are unavailable outside the main thread.",
             exc_info=True,

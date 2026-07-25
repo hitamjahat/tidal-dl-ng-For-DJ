@@ -1,3 +1,9 @@
+"""Type stubs for the coloredlogs package.
+
+Provides type information for coloredlogs so Pyright/Mypy can
+type-check imports in tidal_dl_ng/logger.py.
+"""
+
 import logging
 from collections.abc import Mapping
 

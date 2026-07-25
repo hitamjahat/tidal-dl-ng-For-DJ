@@ -50,7 +50,7 @@ class More:
     def parse(cls, json_obj: Mapping[str, object]) -> More | None: ...
 
 class PageCategory:
-    type: str | None
+    category_type: str | None
     title: str | None
     description: str | None
     session: Session
@@ -63,12 +63,11 @@ class PageCategory:
     def show_more(self) -> Page | None: ...
 
 class PageCategoryV2:
-    type: str | None
+    category_type: str | None
     module_id: str | None
     title: str | None
     subtitle: str | None
     description: str | None
-    category_type: str
     session: Session
     request: Requests
     item_types: dict[str, Callable[[Mapping[str, object]], TidalItem]]
@@ -95,7 +94,6 @@ class PageCategoryV2:
 class SimpleList(PageCategoryV2):
     items: list[TidalItem]
 
-    def __init__(self, session: Session) -> None: ...
     def parse(self, json_obj: Mapping[str, object]) -> SimpleList: ...
     def get_item(self, json_obj: Mapping[str, object]) -> TidalItem | None: ...
 
@@ -106,13 +104,11 @@ class HorizontalListWithContext(HorizontalList): ...
 class TrackList(PageCategoryV2):
     items: list[Track]
 
-    def __init__(self, session: Session) -> None: ...
     def parse(self, json_obj: Mapping[str, object]) -> TrackList: ...
 
 class FeaturedItems(PageCategory):
     items: list[PageItem] | None
 
-    def __init__(self, session: Session) -> None: ...
     def parse(self, json_obj: Mapping[str, object]) -> FeaturedItems: ...
 
 class PageLinks(PageCategory):
@@ -176,8 +172,3 @@ class LinkList(PageCategory):
     description: str | None
 
     def parse(self, json_obj: Mapping[str, object]) -> LinkList: ...
-
-class ItemHeader:
-    items: list[TidalItem] | None
-
-    def __init__(self, item: TidalItem) -> None: ...

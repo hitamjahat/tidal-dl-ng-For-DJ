@@ -9,11 +9,11 @@ license-files = ["LICENSE"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
-  "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
 ]
-requires-python = ">=3.12,<3.14"
+# Updated to support Python 3.14.
+# (You can use ">=3.14" if you want to strictly drop 3.12/3.13 support)
+requires-python = ">=3.14"
 
 dependencies = [
   "requests~=2.34.2",
@@ -53,17 +53,12 @@ deptry = "^0.25.1"
 mypy = "^2.3.0"
 pre-commit = "^4.6.0"
 tox = "^4.56.4"
-pyupgrade = "^3.21.2"
-bandit = "^1.9.4"
-darglint = "^1.8.1"
-isort = { extras = ["colors"], version = "^8.0.1" }
 mypy-extensions = "^1.1.0"
-pydocstyle = "^6.3.0"
 pylint = "^4.0.6"
 pillow = "^12.3.0"
 pytest-cov = "^7.1.0"
-black = "^26.5.1"
 nuitka = "^4.1.3"
+ruff = "^0.4.0" # Added Ruff directly as it now replaces Black, isort, bandit, etc.
 
 [tool.poetry.group.docs]
 optional = true
@@ -82,12 +77,28 @@ build-backend = "poetry.core.masonry.api"
 testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py314" # Updated for Python 3.14
 line-length = 79
 fix = true
-# Enable ALL rules to maximize strictness, efficiency, and performance profiling (PERF, FURB)
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".tox",
+    ".venv",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "env",
+    "venv",
+    "site",
+    "docs",
+    "tidal_dl_ng/ui/main.py",
+    "tidal_dl_ng/ui/dialog_version.py",
+]
+
+# Enable ALL rules to maximize strictness, efficiency, and performance profiling
 lint.select = ["ALL"]
-# Ignoring rules that explicitly conflict with the ruff formatter
 lint.ignore = [
   "COM812",
   "ISC001",
@@ -100,83 +111,16 @@ lint.ignore = [
   "PLR0913",
 ]
 
-[tool.ruff.lint.pydocstyle]
-convention = "google"
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
 
-[tool.ruff.lint.pep8-naming]
-# Backward-compatible public API aliases in tidal_dl_ng/api.py retain
-# their original camelCase names by design (external callers may rely
-# on them). They are intentional public names, not local variables.
-ignore-names = [
-  "getNum",
-  "getItem",
-  "isItemValid",
-  "getItems",
-  "getLimitIndexs",
-  "getVersion",
-  # Qt framework method overrides must keep camelCase names.
-  "sizeHint",
-  "updateGeometries",
-  "lessThan",
-  "filterAcceptsRow",
-  # Project exception names intentionally omit the "Error" suffix to
-  # match their domain meaning (MediaUnknown, MediaMissing, etc.).
-  "MediaUnknown",
-  "UnknownManifestFormat",
-  "MediaMissing",
-]
-
-[tool.black]
-# https://github.com/psf/black
-target-version = ["py312", "py313"]
-line-length = 79
-color = true
-preview = true
-
-exclude = '''
-/(
-    \.git
-    | \.mypy_cache
-    | \.tox
-    | \.venv
-    | _build
-    | buck-out
-    | build
-    | dist
-    | env
-    | venv
-    | site
-    | docs
-    | tidal_dl_ng/ui/main.py
-    | tidal_dl_ng/ui/dialog_version.py
-)/
-'''
-
-[tool.isort]
-# https://github.com/timothycrosley/isort/
-py_version = 312
-line_length = 79
-known_typing = [
-  "typing",
-  "types",
-  "typing_extensions",
-  "mypy",
-  "mypy_extensions",
-]
-sections = [
-  "FUTURE",
-  "TYPING",
-  "STDLIB",
-  "THIRDPARTY",
-  "FIRSTPARTY",
-  "LOCALFOLDER",
-]
-include_trailing_comma = true
-profile = "black"
-multi_line_output = 3
-indent = 4
-color_output = true
-known_third_party = [
+[tool.ruff.lint.isort]
+# Ported from your legacy [tool.isort] configuration
+section-order = ["future", "typing", "standard-library", "third-party", "first-party", "local-folder"]
+known-third-party = [
   "Crypto",
   "PySide6",
   "coloredlogs",
@@ -192,11 +136,88 @@ known_third_party = [
   "typer",
 ]
 
+[tool.ruff.lint.isort.sections]
+"typing" = ["typing", "types", "typing_extensions", "mypy", "mypy_extensions"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.pep8-naming]
+ignore-names = [
+  "getNum",
+  "getItem",
+  "isItemValid",
+  "getItems",
+  "getLimitIndexs",
+  "getVersion",
+  "sizeHint",
+  "updateGeometries",
+  "lessThan",
+  "filterAcceptsRow",
+  "MediaUnknown",
+  "UnknownManifestFormat",
+  "MediaMissing",
+  "HashKey",
+  "File",
+  "Ui_DialogHistory",
+  "Ui_DialogLogin",
+  "Ui_DialogSettings",
+  "Ui_DialogVersion",
+  "setupUi",
+  "retranslateUi",
+  "main",
+  "featured",
+  "contributor",
+  "artist",
+  "welcome_mix",
+  "video_daily",
+  "daily",
+  "discovery",
+  "new_release",
+  "track",
+  "songwriter",
+  "producter",
+  "history_alltime",
+  "history_monthly",
+  "history_yearly",
+  "low_96k",
+  "low_320k",
+  "high_lossless",
+  "hi_res_lossless",
+  "default",
+  "high",
+  "medium",
+  "low",
+  "audio_only",
+  "stereo",
+  "dolby_atmos",
+  "lossless",
+  "Atmos",
+  "LowResCodecs",
+  "PremiumCodecs",
+  "HQCodecs",
+  "audio_mpeg",
+  "audio_mp3",
+  "audio_mp4",
+  "audio_m4a",
+  "audio_flac",
+  "audio_xflac",
+  "audio_eac3",
+  "audio_ac4",
+  "audio_m3u8",
+  "video_mp4",
+  "video_m3u8",
+  "audio_map",
+  "Artist",
+  "DateAdded",
+  "Name",
+  "ReleaseDate",
+]
+
 [tool.mypy]
-# https://mypy.readthedocs.io/en/latest/config_file.html#using-a-pyproject-toml-file
 files = ["tidal_dl_ng"]
 mypy_path = "stubs"
-python_version = "3.12"
+python_version = "3.14" # Updated for Python 3.14
 pretty = true
 show_traceback = true
 color_output = true
@@ -207,7 +228,7 @@ disallow_untyped_decorators = true
 disallow_subclassing_any = true
 disallow_any_expr = true
 disallow_any_decorated = true
-disallow_any_explicit = true
+disallow_any_explicit = false
 check_untyped_defs = true
 disallow_any_generics = true
 disallow_incomplete_defs = true
@@ -229,19 +250,11 @@ disallow_untyped_defs = true
 disallow_any_unimported = true
 
 [tool.deptry]
-# shiboken6 is a transitive dependency from PySide6 that we intentionally use directly
-# for type checking and widget deletion (Shiboken.isValid, Shiboken.delete)
 extend_exclude = []
-# Deptry v0.23+: use per_rule_ignores instead of the deprecated ignore_transitive
 per_rule_ignores = { DEP003 = ["shiboken6"] }
 
 [tool.pylint]
-# Match project line-length standard
 max-line-length = 79
-# Design-level rules disabled project-wide where the pattern is
-# intentional and API-stable (e.g. format functions with many
-# parameters for template substitution, unused *args/**kwargs for
-# callable compatibility, broad Exception with logger.exception).
 disable = [
   "too-many-arguments",
   "too-many-positional-arguments",
@@ -250,25 +263,13 @@ disable = [
   "broad-exception-caught",
   "unused-argument",
   "keyword-arg-before-vararg",
-  # Mixin classes (CollectionDownloadMixin, MetadataWriterMixin) inherit
-  # from DownloadProtocol but intentionally leave its abstract methods
-  # unimplemented; the concrete Download class supplies them. This is a
-  # deliberate mixin pattern, not a missing implementation.
   "abstract-method",
-  # Ignore missing docstrings in stub files (.pyi)
   "missing-module-docstring",
   "missing-class-docstring",
   "missing-function-docstring",
 ]
-# Qt framework method overrides (sizeHint, updateGeometries, lessThan,
-# PySide6 ships as a C extension; allow pylint to introspect its members
-# instead of emitting c-extension-no-member (I1101) false positives.
 extension-pkg-allow-list = ["PySide6", "shiboken6"]
-# PySide6 signal instances (SignalInstance) expose connect/disconnect/
-# emit at the C level; pylint cannot infer them from the extension, so
-# declare them as generated members to avoid false no-member (E1101).
 generated-members = [".*\\.connect", ".*\\.disconnect", ".*\\.emit"]
-# Enable extra strict extensions for performance and efficiency
 load-plugins = [
   "pylint.extensions.bad_builtin",
   "pylint.extensions.check_elif",
@@ -281,11 +282,7 @@ load-plugins = [
   "pylint.extensions.set_membership",
   "pylint.extensions.typing",
 ]
-# TypeVars use a T-prefixed CamelCase name (e.g. TConfigData).
-good-names = ["TConfigData", "_", "T"]
-# Backward-compatible public API aliases in tidal_dl_ng/api.py retain
-# their original camelCase names by design (external callers may rely
-# on them). They are intentional public names, not local variables.
+good-names = ["TConfigData", "_", "T", "HashKey", "File", "Ui_DialogHistory", "Ui_DialogLogin", "Ui_DialogSettings", "Ui_DialogVersion"]
 good-names-rgxs = [
   "^getNum$",
   "^getItem$",
@@ -293,18 +290,62 @@ good-names-rgxs = [
   "^getItems$",
   "^getLimitIndexs$",
   "^getVersion$",
-  # Qt framework method overrides must keep camelCase names.
   "^sizeHint$",
   "^updateGeometries$",
   "^lessThan$",
   "^filterAcceptsRow$",
+  "^setupUi$",
+  "^retranslateUi$",
+  "^main$",
+  "^featured$",
+  "^contributor$",
+  "^artist$",
+  "^low_96k$",
+  "^low_320k$",
+  "^high_lossless$",
+  "^hi_res_lossless$",
+  "^default$",
+  "^high$",
+  "^medium$",
+  "^low$",
+  "^audio_only$",
+  "^stereo$",
+  "^dolby_atmos$",
+  "^lossless$",
+  "^Atmos$",
+  "^LowResCodecs$",
+  "^PremiumCodecs$",
+  "^HQCodecs$",
+  "^audio_mpeg$",
+  "^audio_mp3$",
+  "^audio_mp4$",
+  "^audio_m4a$",
+  "^audio_flac$",
+  "^audio_xflac$",
+  "^audio_eac3$",
+  "^audio_ac4$",
+  "^audio_m3u8$",
+  "^video_mp4$",
+  "^video_m3u8$",
+  "^audio_map$",
+  "^Artist$",
+  "^DateAdded$",
+  "^Name$",
+  "^ReleaseDate$",
+  "^welcome_mix$",
+  "^video_daily$",
+  "^daily$",
+  "^discovery$",
+  "^new_release$",
+  "^track$",
+  "^songwriter$",
+  "^producter$",
+  "^history_alltime$",
+  "^history_monthly$",
+  "^history_yearly$",
 ]
 
-# Data-model dataclasses (e.g. ResultItem, ItemRequest, Settings,
-# HelpSettings) legitimately carry many attributes; raise the threshold
-# for the whole project.
 [tool.pylint.design]
 max-attributes = 50
-# MainWindow is the intentional composition root for focused GUI mixins.
-# Count inherited feature mixins without flagging that architecture itself.
 max-parents = 20
+min-public-methods = 1

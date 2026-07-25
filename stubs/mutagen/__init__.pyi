@@ -1,16 +1,17 @@
-"""Stub for mutagen top-level package."""
-
 from pathlib import Path
 
 class MutagenError(Exception): ...
 
 class FileType:
-    tags: object
+    @property
+    def tags(self) -> object | None: ...
     def add_tags(self) -> None: ...
-    def save(self, filename: str | Path | None = ...) -> None: ...
+    def save(
+        self, filething: str | Path | None = ..., **kwargs: object
+    ) -> None: ...
 
 def File(
-    filename: str | Path,
+    filething: str | Path,
     options: list[object] | None = ...,
     easy: bool = ...,
 ) -> FileType | None: ...
