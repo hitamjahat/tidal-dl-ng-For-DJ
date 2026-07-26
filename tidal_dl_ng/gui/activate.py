@@ -8,28 +8,30 @@ in their dedicated GUI modules.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Never, cast
+
 import ctypes
 import importlib
 import logging
 import signal
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Never, cast
 
+import qdarktheme
 from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi.exceptions import TidalAPIError
 
 from tidal_dl_ng import __name_display__, __version__
+from tidal_dl_ng.helper.path import resource_path
 from tidal_dl_ng.logger import enable_debug_and_warnings
 
 if TYPE_CHECKING:
+    from types import FrameType, TracebackType
+
     from collections.abc import Callable
-    from types import FrameType, ModuleType, TracebackType
 
     from tidal_dl_ng.config import Tidal
     from tidal_dl_ng.gui.main_window import MainWindow
-
-qdarktheme: ModuleType = importlib.import_module("qdarktheme")
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -107,7 +109,7 @@ def _setup_application_metadata(
 
 
 def _resolve_resource_path(relative_path: str) -> Path:
-    """Resolve a packaged resource without extending the import cycle.
+    """Resolve a packaged resource for source or frozen builds.
 
     Args:
         relative_path (str): Resource path relative to the project root.
@@ -115,12 +117,7 @@ def _resolve_resource_path(relative_path: str) -> Path:
     Returns:
         Path: Absolute resource location for source or frozen builds.
     """
-    path_module = importlib.import_module("tidal_dl_ng.helper.path")
-    resource_locator = cast(
-        "Callable[[str], str]",
-        path_module.resource_path,
-    )
-    return Path(resource_locator(relative_path)).resolve()
+    return Path(resource_path(relative_path)).resolve()
 
 
 def _create_application_icon() -> QtGui.QIcon:
@@ -180,7 +177,7 @@ def _setup_windows_app_id() -> None:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID,
         )
         result = set_app_user_model_id(app_user_model_id)
-    except AttributeError, OSError:
+    except (AttributeError, OSError):  # fmt: skip
         logger.exception(
             "Unable to set Windows AppUserModelID: %s",
             app_user_model_id,
@@ -230,6 +227,10 @@ def _setup_exception_hook() -> None:
     sys.excepthook = _exception_hook
 
 
+def _allow_python_signal_dispatch() -> None:
+    """Allow Python to dispatch pending signals during Qt event loops."""
+
+
 def _setup_signal_handlers(
     application: QtWidgets.QApplication,
 ) -> None:
@@ -264,13 +265,10 @@ def _setup_signal_handlers(
         )
         application.quit()
 
-    def _allow_python_signal_dispatch() -> None:
-        """Allow Python to dispatch pending signals during Qt event loops."""
-
     try:
         signal.signal(signal.SIGINT, _handle_shutdown)
         signal.signal(signal.SIGTERM, _handle_shutdown)
-    except OSError, ValueError:
+    except (OSError, ValueError):  # fmt: skip
         logger.debug(
             "Process signal handlers are unavailable outside the main thread.",
             exc_info=True,

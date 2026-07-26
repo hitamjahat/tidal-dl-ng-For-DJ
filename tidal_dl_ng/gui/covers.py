@@ -7,13 +7,14 @@ because pixmaps are GUI resources rather than worker-safe image containers.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import time
 from functools import partial
 from http.client import HTTPException
 from itertools import islice
 from pathlib import Path
 from threading import Lock
-from typing import TYPE_CHECKING, cast
 from urllib.parse import urljoin, urlsplit
 
 import requests
@@ -101,7 +102,7 @@ class CoverManager:
         Raises:
             TypeError: If the required signal is absent or invalid.
         """
-        signal = cast("object", getattr(parent_window, name, None))
+        signal = getattr(parent_window, name, None)
         if isinstance(signal, QtCore.SignalInstance):
             return signal
         message = f"Parent window does not provide Qt signal {name!r}."
@@ -363,14 +364,13 @@ class CoverManager:
             str | None: Non-empty cover URL when one is available.
         """
         try:
-            album = cast("object", getattr(media, "album", None))
+            album = getattr(media, "album", None)
             if isinstance(album, Album):
                 return CoverManager._normalize_url(album.image())
 
-            image_attribute = cast("object", getattr(media, "image", None))
+            image_attribute = getattr(media, "image", None)
             if callable(image_attribute):
-                image_method = cast("Callable[[], object]", image_attribute)
-                return CoverManager._normalize_url(image_method())
+                return CoverManager._normalize_url(image_attribute())
         except COVER_URL_ERRORS as error:
             logger_gui.debug(
                 "Unable to determine cover URL for %s: %s",

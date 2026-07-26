@@ -133,21 +133,19 @@ class DownloadsMixin:
             tuple[str, str | None, str | None]: Source type, identifier,
                 and display name.
         """
-        if isinstance(media, Album):
-            return "album", str(media.id), media.name
-
-        if isinstance(media, Playlist):
-            return "playlist", str(media.id), media.name
-
-        if isinstance(media, Mix):
-            return "mix", str(media.id), media.title
-
-        if isinstance(media, Track):
-            if (album := media.album) is not None:
-                return "album", str(album.id), album.name
-            return "track", str(media.id), media.name
-
-        return "video", str(media.id), media.name
+        match media:
+            case Album():
+                return "album", str(media.id), media.name
+            case Playlist():
+                return "playlist", str(media.id), media.name
+            case Mix():
+                return "mix", str(media.id), media.title
+            case Track():
+                if (album := media.album) is not None:
+                    return "album", str(album.id), album.name
+                return "track", str(media.id), media.name
+            case _:
+                return "video", str(media.id), media.name
 
     def on_download_results(self) -> None:
         """Add every selected results row to the download queue.
@@ -185,7 +183,7 @@ class DownloadsMixin:
                 self.model_tr_results,
             )
             if not _is_queueable(media):
-                log_message: str = (
+                log_message = (
                     f"Cannot queue unsupported result type "
                     f"'{type(media).__name__}'."
                 )

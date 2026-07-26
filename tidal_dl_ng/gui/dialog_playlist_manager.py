@@ -8,9 +8,10 @@ and widget updates on the GUI thread.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, override
+
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, override
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi.exceptions import TidalAPIError
@@ -196,9 +197,9 @@ class PlaylistMembershipModel(QtCore.QAbstractListModel):
                 font = QtGui.QFont()
                 font.setItalic(True)
                 result = font
-            case QtCore.Qt.ItemDataRole.ForegroundRole if (
-                membership.error_message
-            ):
+            case (
+                QtCore.Qt.ItemDataRole.ForegroundRole
+            ) if membership.error_message:
                 palette = QtWidgets.QApplication.palette()
                 result = palette.brush(
                     QtGui.QPalette.ColorRole.BrightText,
@@ -406,8 +407,7 @@ class PlaylistManagerDialog(QtWidgets.QDialog):
         self.cache: ThreadSafePlaylistCache = cache
         self.session: Session = session
         self.threadpool: QtCore.QThreadPool = threadpool
-        track_id = track.id
-        if not isinstance(track_id, int | str) or not track_id:
+        if not (track_id := track.id):
             message = "The playlist manager requires a valid track ID."
             raise ValueError(message)
         self._track_id: str = str(track_id)

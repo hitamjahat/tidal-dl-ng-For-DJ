@@ -8,10 +8,11 @@ is launched.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 import time
 import urllib.parse
 from functools import partial
-from typing import TYPE_CHECKING, cast
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi.album import Album
@@ -52,6 +53,20 @@ SEARCH_TYPE_MAP: dict[str, SearchMediaType] = {
     "video": Video,
     "playlist": Playlist,
 }
+
+# Maps search category names to TIDAL web search path segments.
+SEARCH_PATH_MAP: dict[str, str] = {
+    "artist": "artists",
+    "album": "albums",
+    "track": "tracks",
+    "video": "videos",
+    "playlist": "playlists",
+}
+
+# Markers used to heuristically detect authentication-related errors.
+_AUTH_ERROR_MARKERS: frozenset[str] = frozenset(
+    {"401", "oauth", "token", "unauthorized"}
+)
 
 SESSION_ERRORS: tuple[type[Exception], ...] = (
     AttributeError,
@@ -264,7 +279,7 @@ class ContextMenusMixin:
         Returns:
             str: Share URL, or an empty string when unavailable.
         """
-        share_url = cast("object", getattr(media, "share_url", None))
+        share_url = getattr(media, "share_url", None)
         return share_url if isinstance(share_url, str) else ""
 
     def thread_download_list_media(self, point: QtCore.QPoint) -> None:
@@ -590,10 +605,7 @@ class ContextMenusMixin:
             bool: ``True`` when the message indicates expired credentials.
         """
         error_text = str(error).lower()
-        return any(
-            marker in error_text
-            for marker in ("401", "oauth", "token", "unauthorized")
-        )
+        return any(marker in error_text for marker in _AUTH_ERROR_MARKERS)
 
     def _queue_loaded_albums(self, albums: dict[str, Album]) -> None:
         """Convert loaded albums to queue items and enqueue them.
@@ -652,8 +664,10 @@ class ContextMenusMixin:
 
         if search_category is not None:
             for index in range(self.cb_search_type.count()):
-                item_data = cast("object", self.cb_search_type.itemData(index))
-                if item_data is search_category:
+                if (
+                    cast("object", self.cb_search_type.itemData(index))
+                    is search_category
+                ):
                     self.cb_search_type.setCurrentIndex(index)
                     break
 
@@ -673,14 +687,7 @@ class ContextMenusMixin:
             None: Qt delegates opening the URL to the default browser.
         """
         safe_term = urllib.parse.quote(search_term)
-        search_path_map: dict[str, str] = {
-            "artist": "artists",
-            "album": "albums",
-            "track": "tracks",
-            "video": "videos",
-            "playlist": "playlists",
-        }
-        if search_path := search_path_map.get(search_type.casefold()):
+        if search_path := SEARCH_PATH_MAP.get(search_type.casefold()):
             url = QtCore.QUrl(
                 f"https://listen.tidal.com/search/{search_path}?q={safe_term}",
             )

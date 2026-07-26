@@ -20,17 +20,17 @@ from CLI (sync) and GUI (async) contexts.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, TypedDict, cast
+
 import asyncio
-import base64
+import contextlib
 import json
 import os
-import random
+import secrets
 import time
 import webbrowser
-from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import httpx
 
@@ -50,13 +50,51 @@ from tidal_dl_ng.constants import (
     HIFI_VERIFICATION_QUALITY,
     HIFI_VERIFICATION_TRACK_ID,
 )
+from tidal_dl_ng.logger import logger_gui
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
-
-    from typing import Any
+    from collections.abc import Callable
 
     FnPrint = Callable[[str], None]
+
+#: Type alias for HTTP query parameters, compatible with httpx.
+QueryParamTypes = (
+    str
+    | dict[str, str | int | float | bool | None]
+    | list[tuple[str, str | int | float | bool | None]]
+    | tuple[tuple[str, str | int | float | bool | None], ...]
+)
+
+
+class TokenEntry(TypedDict):
+    """A normalized TIDAL OAuth credential entry.
+
+    Attributes:
+        client_id: The OAuth client ID.
+        client_secret: The OAuth client secret.
+        refresh_token: The OAuth refresh token.
+        user_id: The TIDAL user ID.
+        access_token: The current access token, if available.
+        expires_at: Unix timestamp of token expiry.
+        client_ID: Original-case client ID key (for compat).
+        userID: Original-case user ID key (for compat).
+        token_type: The token type (e.g. "Bearer").
+        expires_in: Seconds until token expiry (from auth response).
+        created_at: ISO 8601 timestamp of token creation.
+    """
+
+    client_id: str
+    client_secret: str
+    refresh_token: str
+    user_id: str
+    access_token: str | None
+    expires_at: int
+    client_ID: str
+    userID: str
+    token_type: str
+    expires_in: int
+    created_at: str
+
 
 #: Default token file path, overridable via ``TOKEN_FILE`` env var.
 TOKEN_FILE: Path = Path(
@@ -107,6 +145,49 @@ MAX_RETRIES: int = max(1, int(os.getenv("MAX_RETRIES", "2")))
 _RATE_LIMIT_MAX_RETRIES: int = 3
 _RATE_LIMIT_BASE_DELAY: float = 1.0
 _RATE_LIMIT_MAX_DELAY: float = 10.0
+
+#: HTTP status codes that indicate rate limiting or temporary blocks.
+_RATE_LIMITED_STATUS_CODES: frozenset[int] = frozenset({403, 429})
+
+#: HTTP status codes that indicate invalid credentials.
+_INVALID_CREDENTIAL_STATUS_CODES: frozenset[int] = frozenset({400, 401})
+
+#: HTTP status code indicating success.
+_HTTP_OK: int = 200
+
+#: HTTP status code indicating unauthorized.
+_HTTP_UNAUTHORIZED: int = 401
+
+#: HTTP status code indicating not found.
+_HTTP_NOT_FOUND: int = 404
+
+#: HTTP status code indicating too many requests.
+_HTTP_TOO_MANY_REQUESTS: int = 429
+
+#: Number of UUID path segments expected in a Tidal URL.
+_UUID_SEGMENT_COUNT: int = 9
+
+#: Indices of UUID segments in a Tidal URL path (start, end).
+_UUID_SEGMENT_START: int = 4
+_UUID_SEGMENT_END: int = 9
+
+#: Delay (seconds) before closing an old HTTP client.
+_DELAYED_CLOSE_DELAY_SEC: float = 15.0
+
+#: Timeout for proxy connectivity tests.
+_PROXY_TEST_TIMEOUT_SEC: float = 5.0
+
+#: HTTP client timeout configuration.
+_HTTP_CLIENT_TIMEOUT: httpx.Timeout = httpx.Timeout(
+    connect=3.0, read=12.0, write=8.0, pool=12.0
+)
+
+#: HTTP client connection limits.
+_HTTP_CLIENT_LIMITS: httpx.Limits = httpx.Limits(
+    max_keepalive_connections=500,
+    max_connections=1000,
+    keepalive_expiry=30.0,
+)
 
 #: Shared HTTP client for connection reuse.
 _http_client: httpx.AsyncClient | None = None
@@ -188,9 +269,7 @@ def _log_response(method: str, url: str, resp: httpx.Response) -> None:
     """
     if not DEV_MODE:
         return
-    from tidal_dl_ng.logger import fn_logger
-
-    fn_logger.debug(
+    logger_gui.debug(
         "[DEV] %s %s -> %s\n  headers: %s\n  body: %s",
         method,
         url,
@@ -200,21 +279,20 @@ def _log_response(method: str, url: str, resp: httpx.Response) -> None:
     )
 
 
-def _pick_credential() -> dict[str, Any]:
+def _pick_credential() -> dict[str, object]:
     """Pick a random credential from loaded tokens.
 
     Returns:
-        dict[str, Any]: A credential dictionary.
+        dict[str, object]: A credential dictionary.
 
     Raises:
         RuntimeError: If no credentials are available.
     """
     tokens = load_tokens()
     if not tokens:
-        raise RuntimeError(
-            "No Tidal credentials available; populate token.json"
-        )
-    return random.choice(tokens)
+        msg = "No Tidal credentials available; populate token.json"
+        raise RuntimeError(msg)
+    return secrets.choice(tokens)
 
 
 def _build_http_client(
@@ -228,22 +306,13 @@ def _build_http_client(
     Returns:
         httpx.AsyncClient: Configured async HTTP client.
     """
-    client_kwargs = {
-        "http2": True,
-        "headers": _tidal_headers(),
-        "timeout": httpx.Timeout(connect=3.0, read=12.0, write=8.0, pool=12.0),
-        "limits": httpx.Limits(
-            max_keepalive_connections=500,
-            max_connections=1000,
-            keepalive_expiry=30.0,
-        ),
-    }
-
-    try:
-        return httpx.AsyncClient(proxy=proxy_url, **client_kwargs)
-    except TypeError:
-        legacy_proxies = {"all://": proxy_url} if proxy_url else None
-        return httpx.AsyncClient(proxies=legacy_proxies, **client_kwargs)
+    return httpx.AsyncClient(
+        proxy=proxy_url,
+        http2=True,
+        headers=_tidal_headers(),
+        timeout=_HTTP_CLIENT_TIMEOUT,
+        limits=_HTTP_CLIENT_LIMITS,
+    )
 
 
 def _build_proxy_test_client(proxy_url: str) -> httpx.AsyncClient:
@@ -255,19 +324,17 @@ def _build_proxy_test_client(proxy_url: str) -> httpx.AsyncClient:
     Returns:
         httpx.AsyncClient: A client configured to use the proxy.
     """
-    try:
-        return httpx.AsyncClient(proxy=proxy_url, timeout=5.0)
-    except TypeError:
-        return httpx.AsyncClient(proxies={"all://": proxy_url}, timeout=5.0)
+    return httpx.AsyncClient(proxy=proxy_url, timeout=_PROXY_TEST_TIMEOUT_SEC)
 
 
 def load_proxies() -> None:
     """Load proxies from file into the global _proxies list."""
     global _proxies
-    if not os.path.exists(PROXIES_FILE):
+    proxies_path = Path(PROXIES_FILE)
+    if not proxies_path.exists():
         _proxies = []
         return
-    with open(PROXIES_FILE, "r", encoding="utf-8") as f:
+    with proxies_path.open(encoding="utf-8") as f:
         _proxies = [line.strip() for line in f if line.strip()]
 
 
@@ -283,9 +350,34 @@ async def test_proxy(proxy_url: str) -> bool:
     try:
         async with _build_proxy_test_client(proxy_url) as client:
             resp = await client.get("http://example.com")
-            return resp.status_code == 200
-    except Exception:  # noqa: BLE001
+            return resp.status_code == _HTTP_OK
+    except httpx.RequestError, httpx.HTTPError:
         return False
+
+
+async def _filter_proxy_candidates(
+    shuffled: list[str],
+    avoid_proxy: str | None,
+) -> list[str]:
+    """Filter and limit proxy candidates for testing.
+
+    Args:
+        shuffled: Proxies in random order.
+        avoid_proxy: A proxy URL to skip.
+
+    Returns:
+        list[str]: Filtered candidates, limited to MAX_PROXY_CANDIDATES.
+    """
+    if avoid_proxy:
+        candidates = [p for p in shuffled if p != avoid_proxy]
+        if not candidates:
+            candidates = shuffled
+    else:
+        candidates = shuffled
+
+    if _last_known_good_proxy:
+        candidates = [p for p in candidates if p != _last_known_good_proxy]
+    return candidates[:MAX_PROXY_CANDIDATES]
 
 
 async def get_working_proxy(
@@ -304,23 +396,16 @@ async def get_working_proxy(
     if not _proxies:
         return None
 
-    if _last_known_good_proxy and _last_known_good_proxy != avoid_proxy:
-        if await test_proxy(_last_known_good_proxy):
-            return _last_known_good_proxy
+    if (
+        _last_known_good_proxy
+        and _last_known_good_proxy != avoid_proxy
+        and await test_proxy(_last_known_good_proxy)
+    ):
+        return _last_known_good_proxy
 
     shuffled = _proxies[:]
-    random.shuffle(shuffled)
-
-    if avoid_proxy:
-        candidates = [p for p in shuffled if p != avoid_proxy]
-        if not candidates:
-            candidates = shuffled
-    else:
-        candidates = shuffled
-
-    if _last_known_good_proxy:
-        candidates = [p for p in candidates if p != _last_known_good_proxy]
-    candidates = candidates[:MAX_PROXY_CANDIDATES]
+    secrets.SystemRandom().shuffle(shuffled)
+    candidates = await _filter_proxy_candidates(shuffled, avoid_proxy)
 
     sem = asyncio.Semaphore(_PROXY_TEST_CONCURRENCY)
     found_event = asyncio.Event()
@@ -332,10 +417,9 @@ async def get_working_proxy(
         async with sem:
             if found_event.is_set():
                 return
-            if await test_proxy(proxy):
-                if not found_event.is_set():
-                    selected[0] = proxy
-                    found_event.set()
+            if await test_proxy(proxy) and not found_event.is_set():
+                selected[0] = proxy
+                found_event.set()
 
     await asyncio.gather(
         *[probe(p) for p in candidates], return_exceptions=True
@@ -363,11 +447,9 @@ async def update_global_client(
         proxy_url = None
         if USE_PROXIES:
             proxy_url = await get_working_proxy(avoid_proxy=proxy_to_avoid)
-            if not proxy_url:
-                if FALLBACK_TO_DIRECT_CONNECTION:
-                    pass
-                else:
-                    raise RuntimeError("No working proxies available")
+            if not proxy_url and not FALLBACK_TO_DIRECT_CONNECTION:
+                msg = "No working proxies available"
+                raise RuntimeError(msg)
 
         if _http_client and _http_client_proxy_url == proxy_url:
             return
@@ -378,7 +460,12 @@ async def update_global_client(
         _http_client_proxy_url = proxy_url
 
         if old_client is not None:
-            asyncio.create_task(_delayed_close(old_client))
+            task = asyncio.create_task(_delayed_close(old_client))
+            _pending_client_closes.add(task)
+            task.add_done_callback(_pending_client_closes.discard)
+
+
+_pending_client_closes: set[asyncio.Task[None]] = set()
 
 
 async def _delayed_close(client: httpx.AsyncClient) -> None:
@@ -387,7 +474,7 @@ async def _delayed_close(client: httpx.AsyncClient) -> None:
     Args:
         client: The client to close.
     """
-    await asyncio.sleep(15)
+    await asyncio.sleep(_DELAYED_CLOSE_DELAY_SEC)
     await client.aclose()
 
 
@@ -409,7 +496,39 @@ async def get_http_client() -> httpx.AsyncClient:
     return _http_client
 
 
-def load_tokens() -> list[dict[str, Any]]:
+def _build_cred_entry(
+    entry: dict[str, object],
+    default_client_id: str,
+    default_client_secret: str,
+) -> dict[str, object]:
+    """Normalize a raw token entry into the standard credential format.
+
+    Args:
+        entry: Raw token entry from token.json.
+        default_client_id: Fallback client ID.
+        default_client_secret: Fallback client secret.
+
+    Returns:
+        dict[str, object]: Normalized credential dictionary with both
+            lowercase and original-case key variants.
+    """
+    client_id = str(entry.get("client_ID") or default_client_id)
+    client_secret = str(entry.get("client_secret") or default_client_secret)
+    user_id = str(entry.get("userID") or "")
+    return {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "refresh_token": str(entry.get("refresh_token") or ""),
+        "user_id": user_id,
+        "access_token": entry.get("access_token"),
+        "expires_at": 0,
+        "client_ID": client_id,
+        "userID": user_id,
+        "token_type": str(entry.get("token_type", "Bearer")),
+    }
+
+
+def load_tokens() -> list[dict[str, object]]:
     """Load all stored token entries from the token file.
 
     Supports both list and dict formats in token.json. Also loads
@@ -417,42 +536,28 @@ def load_tokens() -> list[dict[str, Any]]:
     REFRESH_TOKEN, USER_ID) as a fallback, merged with file-based tokens.
 
     Returns:
-        list[dict[str, Any]]: List of token entry dictionaries.
+        list[dict[str, object]]: List of token entry dictionaries.
             Returns an empty list if no tokens are available.
     """
-    creds: list[dict[str, Any]] = []
+    creds: list[dict[str, object]] = []
 
     if TOKEN_FILE.exists():
-        with TOKEN_FILE.open("r", encoding="utf-8") as f:
-            data = json.load(f)
+        with TOKEN_FILE.open(encoding="utf-8") as f:
+            data = cast("object", json.load(f))
             if isinstance(data, dict):
                 data = [data]
 
-            for entry in data:
-                cred = {
-                    "client_id": (
-                        entry.get("client_ID") or HIFI_REQUEST_CLIENT_ID
-                    ),
-                    "client_secret": (
-                        entry.get("client_secret")
-                        or HIFI_REQUEST_CLIENT_SECRET
-                    ),
-                    "refresh_token": entry.get("refresh_token") or "",
-                    "user_id": entry.get("userID") or "",
-                    "access_token": entry.get("access_token"),
-                    "expires_at": 0,
-                    "client_ID": (
-                        entry.get("client_ID") or HIFI_REQUEST_CLIENT_ID
-                    ),
-                    "client_secret": (
-                        entry.get("client_secret")
-                        or HIFI_REQUEST_CLIENT_SECRET
-                    ),
-                    "userID": entry.get("userID") or "",
-                    "token_type": entry.get("token_type", "Bearer"),
-                }
-                if cred["refresh_token"]:
-                    creds.append(cred)
+            if isinstance(data, list):
+                for entry in data:
+                    if not isinstance(entry, dict):
+                        continue
+                    cred = _build_cred_entry(
+                        cast("dict[str, object]", entry),
+                        HIFI_REQUEST_CLIENT_ID,
+                        HIFI_REQUEST_CLIENT_SECRET,
+                    )
+                    if cred["refresh_token"]:
+                        creds.append(cred)
 
     # Add env var credential if available and unique
     env_refresh = os.getenv("REFRESH_TOKEN")
@@ -461,7 +566,7 @@ def load_tokens() -> list[dict[str, Any]]:
     env_user_id = os.getenv("USER_ID")
 
     if env_refresh:
-        env_cred = {
+        env_cred: dict[str, object] = {
             "client_id": env_client_id,
             "client_secret": env_client_secret,
             "refresh_token": env_refresh,
@@ -469,7 +574,6 @@ def load_tokens() -> list[dict[str, Any]]:
             "access_token": None,
             "expires_at": 0,
             "client_ID": env_client_id,
-            "client_secret": env_client_secret,
             "userID": env_user_id or "",
             "token_type": "Bearer",
         }
@@ -479,9 +583,11 @@ def load_tokens() -> list[dict[str, Any]]:
     return creds
 
 
-def save_token_entry(entry: dict[str, Any]) -> None:
-    """Persist a token entry, replacing any existing entry with the same
-    client_ID and refresh_token.
+def save_token_entry(entry: dict[str, object]) -> None:
+    """Persist a token entry, replacing duplicates.
+
+    Replaces any existing entry with the same client_ID and
+    refresh_token.
 
     Args:
         entry: The token entry dictionary to save.
@@ -524,7 +630,7 @@ def delete_token_entry(client_id: str, refresh_token: str) -> None:
 
 def find_token_entry(
     client_id: str | None = None,
-) -> dict[str, Any] | None:
+) -> dict[str, object] | None:
     """Find a stored token entry, optionally matching a client_id.
 
     Args:
@@ -532,7 +638,7 @@ def find_token_entry(
             are considered. If None, the first entry is returned.
 
     Returns:
-        dict[str, Any] | None: The matching token entry, or None.
+        dict[str, object] | None: The matching token entry, or None.
     """
     tokens = load_tokens()
     if client_id is not None:
@@ -546,9 +652,9 @@ def find_token_entry(
 
 async def poll_for_authorization(
     url: str,
-    data: dict[str, Any],
+    data: dict[str, object],
     auth: tuple[str, str],
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Poll the TIDAL token endpoint until authorization is complete.
 
     Args:
@@ -557,15 +663,15 @@ async def poll_for_authorization(
         auth: HTTP basic auth tuple of (client_id, client_secret).
 
     Returns:
-        dict[str, Any]: The JSON response from the token endpoint
+        dict[str, object]: The JSON response from the token endpoint
             containing access_token, refresh_token, etc.
     """
     headers = _auth_headers()
     async with httpx.AsyncClient(headers=headers) as client:
         while True:
             response = await client.post(url, data=data, auth=auth)
-            if response.status_code == 200:
-                return response.json()
+            if response.status_code == _HTTP_OK:
+                return cast("dict[str, object]", response.json())
             await asyncio.sleep(HIFI_POLL_INTERVAL_SEC)
 
 
@@ -573,7 +679,7 @@ async def refresh_access_token(
     refresh_token: str,
     client_id: str = HIFI_REQUEST_CLIENT_ID,
     client_secret: str = HIFI_REQUEST_CLIENT_SECRET,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Refresh an OAuth access token using the refresh_token grant.
 
     Uses the shared HTTP client with proxy support and retry logic
@@ -585,13 +691,12 @@ async def refresh_access_token(
         client_secret: The client secret for the refresh request.
 
     Returns:
-        dict[str, Any]: The JSON response containing the new
+        dict[str, object]: The JSON response containing the new
             access_token and related fields.
 
     Raises:
         httpx.HTTPStatusError: If the refresh request fails.
     """
-    headers = _tidal_headers()
     data = {
         "client_id": client_id,
         "refresh_token": refresh_token,
@@ -609,16 +714,19 @@ async def refresh_access_token(
                 auth=(client_id, client_secret),
             )
 
-            if response.status_code in [400, 401]:
+            if response.status_code in _INVALID_CREDENTIAL_STATUS_CODES:
                 try:
-                    error_data = response.json()
-                    if error_data.get("error") in [
-                        "invalid_client",
-                        "invalid_grant",
-                    ]:
+                    error_data = cast("dict[str, object]", response.json())
+                    error = error_data.get("error")
+                    if error in ("invalid_client", "invalid_grant"):
+                        error_desc = str(
+                            error_data.get(
+                                "error_description", "Unknown error"
+                            )
+                        )
+                        msg = f"Tidal Auth Error: {error_desc}"
                         raise httpx.HTTPStatusError(
-                            f"Tidal Auth Error: "
-                            f"{error_data.get('error_description')}",
+                            msg,
                             request=response.request,
                             response=response,
                         )
@@ -626,8 +734,8 @@ async def refresh_access_token(
                     pass
 
             response.raise_for_status()
-            return response.json()
-        except httpx.RequestError as e:
+            return cast("dict[str, object]", response.json())
+        except httpx.RequestError:
             if USE_PROXIES and attempt < max_retries - 1:
                 await update_global_client(force_new_proxy=True)
                 continue
@@ -635,19 +743,21 @@ async def refresh_access_token(
         except httpx.HTTPStatusError as e:
             if (
                 USE_PROXIES
-                and e.response.status_code in [403, 429]
+                and e.response.status_code in _RATE_LIMITED_STATUS_CODES
                 and attempt < max_retries - 1
             ):
                 await update_global_client(force_new_proxy=True)
                 continue
             raise
+    msg = "Token refresh failed after all retries"
+    raise RuntimeError(msg)  # pragma: no cover
 
 
 async def verify_token(
     access_token: str,
     track_id: str = HIFI_VERIFICATION_TRACK_ID,
     quality: str = HIFI_VERIFICATION_QUALITY,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Verify a token by requesting playback info for a known track.
 
     Uses the shared HTTP client for connection reuse.
@@ -658,7 +768,7 @@ async def verify_token(
         quality: The audio quality to request (e.g. "HI_RES").
 
     Returns:
-        dict[str, Any]: The JSON response from the playbackinfopostpaywall
+        dict[str, object]: The JSON response from the playbackinfopostpaywall
             endpoint, which includes audioQuality and stream info.
     """
     url = HIFI_PLAYBACK_INFO_URL_TEMPLATE.format(
@@ -668,14 +778,14 @@ async def verify_token(
     client = await get_http_client()
     response = await client.get(url, headers=headers)
     response.raise_for_status()
-    return response.json()
+    return cast("dict[str, object]", response.json())
 
 
 async def run_device_authorization_flow(
     fn_print: FnPrint,
     *,
     open_browser: bool = True,
-) -> dict[str, Any] | None:
+) -> dict[str, object] | None:
     """Execute the full OAuth 2.0 Device Authorization flow.
 
     This function:
@@ -690,7 +800,7 @@ async def run_device_authorization_flow(
         open_browser: Whether to automatically open the verification URL.
 
     Returns:
-        dict[str, Any] | None: The saved token entry, or None if the
+        dict[str, object] | None: The saved token entry, or None if the
             flow failed.
     """
     fn_print(f"Trying Client ID: {HIFI_AUTH_CLIENT_ID}")
@@ -704,14 +814,14 @@ async def run_device_authorization_flow(
             HIFI_DEVICE_AUTH_URL, data=data, headers=headers
         )
 
-    if response.status_code != 200:
+    if response.status_code != _HTTP_OK:
         fn_print(f"Error {response.status_code} during device authorization.")
         return None
 
-    res = response.json()
-    verify_url = res["verificationUriComplete"]
-    device_code = res["deviceCode"]
-    expires_in = int(res.get("expiresIn", 0))
+    res = cast("dict[str, object]", response.json())
+    verify_url = str(res["verificationUriComplete"])
+    device_code = str(res["deviceCode"])
+    expires_in = int(cast("int", res.get("expiresIn", 0)))
 
     fn_print(f"Verification URL: {verify_url}")
     fn_print(f"Device code: {device_code}")
@@ -721,7 +831,7 @@ async def run_device_authorization_flow(
         webbrowser.open(verify_url)
 
     # Step 2: Poll for authorization
-    token_data = {
+    token_data: dict[str, object] = {
         "client_id": HIFI_AUTH_CLIENT_ID,
         "scope": HIFI_OAUTH_SCOPE,
         "device_code": device_code,
@@ -734,19 +844,19 @@ async def run_device_authorization_flow(
         HIFI_TOKEN_URL, token_data, basic
     )
 
-    access_token = auth_response["access_token"]
-    refresh_token = auth_response["refresh_token"]
-    user_id = auth_response["user"]["userId"]
+    access_token = str(auth_response["access_token"])
+    refresh_token = str(auth_response["refresh_token"])
+    user_id = str(cast("dict[str, object]", auth_response["user"])["userId"])
 
-    entry: dict[str, Any] = {
+    entry: dict[str, object] = {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "userID": user_id,
         "client_ID": HIFI_REQUEST_CLIENT_ID,
         "client_secret": HIFI_REQUEST_CLIENT_SECRET,
-        "token_type": auth_response.get("token_type", "Bearer"),
-        "expires_in": auth_response.get("expires_in", 0),
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "token_type": str(auth_response.get("token_type", "Bearer")),
+        "expires_in": int(cast("int", auth_response.get("expires_in", 0))),
+        "created_at": datetime.now(UTC).isoformat(),
     }
 
     save_token_entry(entry)
@@ -755,7 +865,7 @@ async def run_device_authorization_flow(
     # Step 3: Verify the token
     try:
         verification = await verify_token(access_token)
-        audio_quality = verification.get("audioQuality", "UNKNOWN")
+        audio_quality = str(verification.get("audioQuality", "UNKNOWN"))
         fn_print(f"Token verified. Audio quality: {audio_quality}")
         if audio_quality == HIFI_VERIFICATION_QUALITY:
             fn_print("Token is valid for HI_RES lossless streams!")
@@ -764,7 +874,7 @@ async def run_device_authorization_flow(
                 f"WARNING: Token is capped at '{audio_quality}' "
                 f"instead of {HIFI_VERIFICATION_QUALITY}."
             )
-    except Exception as e:  # noqa: BLE001
+    except (httpx.HTTPError, KeyError) as e:
         fn_print(f"WARNING: Could not verify token: {e}")
 
     return entry
@@ -774,7 +884,7 @@ def run_device_authorization_flow_sync(
     fn_print: FnPrint,
     *,
     open_browser: bool = True,
-) -> dict[str, Any] | None:
+) -> dict[str, object] | None:
     """Synchronous wrapper for :func:`run_device_authorization_flow`.
 
     Args:
@@ -782,7 +892,7 @@ def run_device_authorization_flow_sync(
         open_browser: Whether to automatically open the verification URL.
 
     Returns:
-        dict[str, Any] | None: The saved token entry, or None if failed.
+        dict[str, object] | None: The saved token entry, or None if failed.
     """
     return asyncio.run(
         run_device_authorization_flow(fn_print, open_browser=open_browser)
@@ -793,7 +903,7 @@ async def get_valid_token(
     client_id: str | None = None,
     *,
     force_refresh: bool = False,
-) -> tuple[str, dict[str, Any]] | None:
+) -> tuple[str, dict[str, object]] | None:
     """Retrieve a valid access token, refreshing if necessary.
 
     Args:
@@ -802,29 +912,31 @@ async def get_valid_token(
         force_refresh: If True, always refresh the token.
 
     Returns:
-        tuple[str, dict[str, Any]] | None: A tuple of (access_token,
+        tuple[str, dict[str, object]] | None: A tuple of (access_token,
             token_entry), or None if no valid token is available.
     """
     entry = find_token_entry(client_id)
     if entry is None:
         return None
 
-    access_token = entry.get("access_token", "")
+    access_token = str(entry.get("access_token", ""))
     if not access_token or force_refresh:
-        refresh_token = entry.get("refresh_token", "")
+        refresh_token = str(entry.get("refresh_token", ""))
         if not refresh_token:
             return None
         try:
             refreshed = await refresh_access_token(refresh_token)
-            access_token = refreshed["access_token"]
+            access_token = str(refreshed["access_token"])
             entry["access_token"] = access_token
-            entry["refresh_token"] = refreshed.get(
-                "refresh_token", refresh_token
+            entry["refresh_token"] = str(
+                refreshed.get("refresh_token", refresh_token)
             )
-            entry["expires_in"] = refreshed.get("expires_in", 0)
-            entry["created_at"] = datetime.now(timezone.utc).isoformat()
+            entry["expires_in"] = int(
+                cast("int", refreshed.get("expires_in", 0))
+            )
+            entry["created_at"] = datetime.now(UTC).isoformat()
             save_token_entry(entry)
-        except Exception:  # noqa: BLE001
+        except httpx.HTTPError, KeyError:
             return None
 
     return access_token, entry
@@ -834,7 +946,7 @@ def get_valid_token_sync(
     client_id: str | None = None,
     *,
     force_refresh: bool = False,
-) -> tuple[str, dict[str, Any]] | None:
+) -> tuple[str, dict[str, object]] | None:
     """Synchronous wrapper for :func:`get_valid_token`.
 
     Args:
@@ -843,7 +955,7 @@ def get_valid_token_sync(
         force_refresh: If True, always refresh the token.
 
     Returns:
-        tuple[str, dict[str, Any]] | None: A tuple of (access_token,
+        tuple[str, dict[str, object]] | None: A tuple of (access_token,
             token_entry), or None if no valid token is available.
     """
     return asyncio.run(get_valid_token(client_id, force_refresh=force_refresh))
@@ -862,9 +974,9 @@ async def verify_existing_token(
     """
     try:
         await verify_token(access_token)
-        return True
-    except Exception:  # noqa: BLE001
+    except httpx.HTTPError:
         return False
+    return True
 
 
 def verify_existing_token_sync(access_token: str) -> bool:
@@ -899,10 +1011,13 @@ def get_auth_client_credentials() -> tuple[str, str]:
     return HIFI_AUTH_CLIENT_ID, HIFI_AUTH_CLIENT_SECRET
 
 
-# --- Authenticated HTTP request helpers (merged from hifi-api-main/main.py) ---
+# --- Authenticated HTTP request helpers
+# (merged from hifi-api-main/main.py) ---
 
 
-async def _lock_for_cred(cred: dict[str, Any]) -> asyncio.Lock:
+def _lock_for_cred(
+    cred: dict[str, object],
+) -> asyncio.Lock:
     """Get or create a lock for a specific credential set.
 
     Args:
@@ -919,10 +1034,92 @@ async def _lock_for_cred(cred: dict[str, Any]) -> asyncio.Lock:
     return lock
 
 
+async def _refresh_cred_token(
+    cred: dict[str, object],
+) -> tuple[str, dict[str, object]]:
+    """Refresh a credential's access token via the OAuth refresh grant.
+
+    Args:
+        cred: The credential dictionary to refresh.
+
+    Returns:
+        tuple[str, dict[str, object]]: (new_access_token, updated_cred).
+
+    Raises:
+        httpx.HTTPStatusError: If the refresh request fails after retries.
+        httpx.RequestError: If the request fails after retries.
+    """
+    max_retries = MAX_RETRIES if USE_PROXIES else 1
+    for attempt in range(max_retries):
+        try:
+            client = await get_http_client()
+            response = await client.post(
+                HIFI_TOKEN_URL,
+                data=cast(
+                    "dict[str, str]",
+                    {
+                        "client_id": str(cred["client_id"]),
+                        "refresh_token": str(cred["refresh_token"]),
+                        "grant_type": HIFI_OAUTH_GRANT_TYPE_REFRESH,
+                        "scope": HIFI_OAUTH_SCOPE,
+                    },
+                ),
+                auth=(
+                    str(cred["client_id"]),
+                    str(cred["client_secret"]),
+                ),
+            )
+
+            if response.status_code in _INVALID_CREDENTIAL_STATUS_CODES:
+                try:
+                    error_data = cast("dict[str, object]", response.json())
+                    error = error_data.get("error")
+                    if error in ("invalid_client", "invalid_grant"):
+                        error_desc = str(
+                            error_data.get(
+                                "error_description", "Unknown error"
+                            )
+                        )
+                        msg = f"Tidal Auth Error: {error_desc}"
+                        raise httpx.HTTPStatusError(
+                            msg,
+                            request=response.request,
+                            response=response,
+                        )
+                except ValueError:
+                    pass
+
+            response.raise_for_status()
+            data = cast("dict[str, object]", response.json())
+            new_token = str(data["access_token"])
+            expires_in = int(cast("int", data.get("expires_in", 3600)))
+
+            cred["access_token"] = new_token
+            cred["expires_at"] = time.time() + expires_in - 60
+        except httpx.RequestError:
+            if USE_PROXIES and attempt < max_retries - 1:
+                await update_global_client(force_new_proxy=True)
+                continue
+            raise
+        except httpx.HTTPStatusError as e:
+            if (
+                USE_PROXIES
+                and e.response.status_code in _RATE_LIMITED_STATUS_CODES
+                and attempt < max_retries - 1
+            ):
+                await update_global_client(force_new_proxy=True)
+                continue
+            raise
+        else:
+            return new_token, cred
+    msg = "Token refresh failed after all retries"
+    raise RuntimeError(msg)  # pragma: no cover
+
+
 async def get_tidal_token_for_cred(
     force_refresh: bool = False,
-    cred: dict[str, Any] | None = None,
-) -> tuple[str, dict[str, Any]]:
+    cred: dict[str, object] | None = None,
+) -> tuple[str, dict[str, object]]:
     """Retrieve an access token for a specific credential.
 
     Args:
@@ -931,104 +1128,109 @@ async def get_tidal_token_for_cred(
             available credential.
 
     Returns:
-        tuple[str, dict[str, Any]]: (access_token, credential_dict).
+        tuple[str, dict[str, object]]: (access_token, credential_dict).
     """
     if cred is None:
-        tokens = load_tokens()
-        if not tokens:
-            raise RuntimeError("No Tidal credentials available")
+        if not (tokens := load_tokens()):
+            msg = "No Tidal credentials available"
+            raise RuntimeError(msg)
         cred = tokens[0]
 
-    async with await _lock_for_cred(cred):
+    async with _lock_for_cred(cred):
         if (
             cred.get("access_token")
-            and cred.get("expires_at", 0) > time.time()
+            and cast("int", cred.get("expires_at", 0)) > time.time()
         ):
-            return cred["access_token"], cred
+            return str(cred["access_token"]), cred
 
         if USE_PROXIES and ROTATE_PROXIES_ON_REFRESH:
             await update_global_client(force_new_proxy=True)
 
-        max_retries = MAX_RETRIES if USE_PROXIES else 1
-        for attempt in range(max_retries):
-            try:
-                client = await get_http_client()
-                response = await client.post(
-                    HIFI_TOKEN_URL,
-                    data={
-                        "client_id": cred["client_id"],
-                        "refresh_token": cred["refresh_token"],
-                        "grant_type": HIFI_OAUTH_GRANT_TYPE_REFRESH,
-                        "scope": HIFI_OAUTH_SCOPE,
-                    },
-                    auth=(
-                        cred["client_id"],
-                        cred["client_secret"],
-                    ),
-                )
-
-                if response.status_code in [400, 401]:
-                    try:
-                        error_data = response.json()
-                        if error_data.get("error") in [
-                            "invalid_client",
-                            "invalid_grant",
-                        ]:
-                            raise httpx.HTTPStatusError(
-                                f"Tidal Auth Error: "
-                                f"{error_data.get('error_description')}",
-                                request=response.request,
-                                response=response,
-                            )
-                    except ValueError:
-                        pass
-
-                response.raise_for_status()
-                data = response.json()
-                new_token = data["access_token"]
-                expires_in = data.get("expires_in", 3600)
-
-                cred["access_token"] = new_token
-                cred["expires_at"] = time.time() + expires_in - 60
-
-                return new_token, cred
-            except httpx.RequestError:
-                if USE_PROXIES and attempt < max_retries - 1:
-                    await update_global_client(force_new_proxy=True)
-                    continue
-                raise
-            except httpx.HTTPStatusError as e:
-                if (
-                    USE_PROXIES
-                    and e.response.status_code in [403, 429]
-                    and attempt < max_retries - 1
-                ):
-                    await update_global_client(force_new_proxy=True)
-                    continue
-                raise
+        return await _refresh_cred_token(cred)
 
 
 async def get_tidal_token(
     force_refresh: bool = False,
-) -> tuple[str, dict[str, Any]]:
+) -> tuple[str, dict[str, object]]:
     """Retrieve an access token, picking a random credential.
 
     Args:
         force_refresh: If True, always refresh the token.
 
     Returns:
-        tuple[str, dict[str, Any]]: (access_token, credential_dict).
+        tuple[str, dict[str, object]]: (access_token, credential_dict).
     """
     return await get_tidal_token_for_cred(force_refresh=force_refresh)
+
+
+async def _compute_rate_limit_delay(
+    response: httpx.Response, attempt: int
+) -> float:
+    """Compute the exponential backoff delay for rate-limited responses.
+
+    Args:
+        response: The HTTP response with a 429 status code.
+        attempt: The current retry attempt (0-based).
+
+    Returns:
+        float: The delay in seconds before retrying.
+    """
+    delay = min(
+        _RATE_LIMIT_BASE_DELAY * (2**attempt),
+        _RATE_LIMIT_MAX_DELAY,
+    )
+    retry_after = response.headers.get("Retry-After")
+    if retry_after:
+        with contextlib.suppress(ValueError):
+            delay = min(delay, max(float(retry_after), 0))
+    return min(delay, _RATE_LIMIT_MAX_DELAY)
+
+
+async def _handle_404_retry(
+    url: str,
+    headers: dict[str, str],
+    *,
+    params: QueryParamTypes | None,
+    token: str,
+    cred: dict[str, object],
+    client: httpx.AsyncClient,
+) -> tuple[httpx.Response, str, dict[str, object]]:
+    """Handle a 404 by refreshing the token and retrying the request.
+
+    Args:
+        url: The URL to request.
+        headers: Current request headers.
+        params: Optional query parameters.
+        token: Current access token.
+        cred: Current credential dictionary.
+        client: The HTTP client to use.
+
+    Returns:
+        tuple[httpx.Response, str, dict[str, object]]:
+            (response, refreshed_token, refreshed_cred).
+    """
+    fresh_token, fresh_cred = await get_tidal_token_for_cred(
+        force_refresh=True, cred=cred
+    )
+    if fresh_token != token:
+        headers = _api_headers(fresh_token)
+        response = await client.get(url, headers=headers, params=params)
+        return response, fresh_token, fresh_cred
+    # Return a dummy response to signal no retry was needed
+    return (
+        httpx.Response(_HTTP_NOT_FOUND),
+        token,
+        cred,
+    )
 
 
 async def authed_get_json(
     url: str,
     *,
-    params: dict[str, Any] | None = None,
+    params: QueryParamTypes | None = None,
     token: str | None = None,
-    cred: dict[str, Any] | None = None,
-) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    cred: dict[str, object] | None = None,
+) -> tuple[dict[str, object], str, dict[str, object]]:
     """Perform an authenticated GET, retrying once on 401.
 
     Args:
@@ -1038,7 +1240,7 @@ async def authed_get_json(
         cred: Optional pre-fetched credential dict.
 
     Returns:
-        tuple[dict[str, Any], str, dict[str, Any]]:
+        tuple[dict[str, object], str, dict[str, object]]:
             (response_json, access_token, credential_dict).
     """
     if token is None or cred is None:
@@ -1047,54 +1249,60 @@ async def authed_get_json(
     client = await get_http_client()
     headers = _api_headers(token)
 
+    response: httpx.Response | None = None
     for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
         response = await client.get(url, headers=headers, params=params)
 
-        if response.status_code == 401:
+        if response.status_code == _HTTP_UNAUTHORIZED:
             token, cred = await get_tidal_token_for_cred(
                 force_refresh=True, cred=cred
             )
             headers = _api_headers(token)
             response = await client.get(url, headers=headers, params=params)
 
-        if response.status_code == 429 and attempt < _RATE_LIMIT_MAX_RETRIES:
-            delay = min(
-                _RATE_LIMIT_BASE_DELAY * (2**attempt),
-                _RATE_LIMIT_MAX_DELAY,
-            )
-            retry_after = response.headers.get("Retry-After")
-            if retry_after:
-                try:
-                    delay = min(delay, max(float(retry_after), 0))
-                except ValueError:
-                    pass
-            delay = min(delay, _RATE_LIMIT_MAX_DELAY)
+        if (
+            response.status_code == _HTTP_TOO_MANY_REQUESTS
+            and attempt < _RATE_LIMIT_MAX_RETRIES
+        ):
+            delay = await _compute_rate_limit_delay(response, attempt)
             await asyncio.sleep(delay)
             continue
 
-        if response.status_code == 404:
-            fresh_token, fresh_cred = await get_tidal_token_for_cred(
-                force_refresh=True, cred=cred
+        if response.status_code == _HTTP_NOT_FOUND:
+            response, token, cred = await _handle_404_retry(
+                url,
+                headers,
+                params=params,
+                token=token,
+                cred=cred,
+                client=client,
             )
-            if fresh_token != token:
-                headers = _api_headers(fresh_token)
-                response = await client.get(
-                    url, headers=headers, params=params
-                )
-                token, cred = fresh_token, fresh_cred
+            if response.status_code != _HTTP_NOT_FOUND:
+                break
 
         break
 
+    if response is None:
+        msg = "No response received from server"
+        dummy = httpx.Response(
+            _HTTP_NOT_FOUND, request=httpx.Request("GET", url)
+        )
+        raise httpx.HTTPStatusError(msg, request=dummy.request, response=dummy)
+
     response.raise_for_status()
-    return response.json(), token, cred
+    return (
+        cast("dict[str, object]", response.json()),
+        token,
+        cred,
+    )
 
 
 async def make_request(
     url: str,
     token: str | None = None,
-    params: dict[str, Any] | None = None,
-    cred: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    params: QueryParamTypes | None = None,
+    cred: dict[str, object] | None = None,
+) -> dict[str, object]:
     """Make an authenticated GET request to a TIDAL API endpoint.
 
     Args:
@@ -1104,7 +1312,7 @@ async def make_request(
         cred: Optional pre-fetched credential dict.
 
     Returns:
-        dict[str, Any]: Response payload with version info.
+        dict[str, object]: Response payload with version info.
     """
     if token is None or cred is None:
         token, cred = await get_tidal_token_for_cred(cred=cred)
@@ -1112,46 +1320,51 @@ async def make_request(
     client = await get_http_client()
     headers = _api_headers(token)
 
+    response: httpx.Response | None = None
     for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
         response = await client.get(url, headers=headers, params=params)
 
-        if response.status_code == 401:
+        if response.status_code == _HTTP_UNAUTHORIZED:
             token, cred = await get_tidal_token_for_cred(
                 force_refresh=True, cred=cred
             )
             headers = _api_headers(token)
             response = await client.get(url, headers=headers, params=params)
 
-        if response.status_code == 429 and attempt < _RATE_LIMIT_MAX_RETRIES:
-            delay = min(
-                _RATE_LIMIT_BASE_DELAY * (2**attempt),
-                _RATE_LIMIT_MAX_DELAY,
-            )
-            retry_after = response.headers.get("Retry-After")
-            if retry_after:
-                try:
-                    delay = min(delay, max(float(retry_after), 0))
-                except ValueError:
-                    pass
-            delay = min(delay, _RATE_LIMIT_MAX_DELAY)
+        if (
+            response.status_code == _HTTP_TOO_MANY_REQUESTS
+            and attempt < _RATE_LIMIT_MAX_RETRIES
+        ):
+            delay = await _compute_rate_limit_delay(response, attempt)
             await asyncio.sleep(delay)
             continue
 
-        if response.status_code == 404:
-            fresh_token, fresh_cred = await get_tidal_token_for_cred(
-                force_refresh=True, cred=cred
+        if response.status_code == _HTTP_NOT_FOUND:
+            response, token, cred = await _handle_404_retry(
+                url,
+                headers,
+                params=params,
+                token=token,
+                cred=cred,
+                client=client,
             )
-            if fresh_token != token:
-                headers = _api_headers(fresh_token)
-                response = await client.get(
-                    url, headers=headers, params=params
-                )
-                token, cred = fresh_token, fresh_cred
+            if response.status_code != _HTTP_NOT_FOUND:
+                break
 
         break
 
+    if response is None:
+        msg = "No response received from server"
+        dummy = httpx.Response(
+            _HTTP_NOT_FOUND, request=httpx.Request("GET", url)
+        )
+        raise httpx.HTTPStatusError(msg, request=dummy.request, response=dummy)
+
     response.raise_for_status()
-    return {"version": "2.10", "data": response.json()}
+    return {
+        "version": "2.10",
+        "data": cast("dict[str, object]", response.json()),
+    }
 
 
 def _extract_uuid_from_tidal_url(href: str) -> str | None:
@@ -1164,4 +1377,6 @@ def _extract_uuid_from_tidal_url(href: str) -> str | None:
         str | None: The reconstructed UUID, or None if not found.
     """
     parts = href.split("/") if href else []
-    return "-".join(parts[4:9]) if len(parts) >= 9 else None
+    if len(parts) < _UUID_SEGMENT_COUNT:
+        return None
+    return "-".join(parts[_UUID_SEGMENT_START:_UUID_SEGMENT_END])

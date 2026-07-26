@@ -22,6 +22,67 @@ This documentation should be kept synchronized with the source code to ensure it
 
 ---
 
+## File: tidal_dl_ng/gui/activate.py
+
+**File Path:** `tidal_dl_ng/gui/activate.py`
+
+**Purpose:** Bootstrap the graphical TIDAL Downloader application by owning process-level Qt configuration: high-DPI behavior, application metadata, global theming, desktop integration, exception reporting, and graceful shutdown.
+
+**Description:** This module is the GUI entry point invoked by `gui_activate()`. It configures the process-wide `QApplication` (high-DPI rounding policy, application name/version/organization, window icon, dark theme), installs a Windows AppUserModelID for taskbar grouping, replaces the process exception hook to log uncaught GUI exceptions, installs signal handlers for graceful shutdown (SIGINT/SIGTERM) with a Qt timer to keep Python signal dispatch alive during the event loop, validates or recovers an injected TIDAL session, and finally loads the `MainWindow` class and runs the Qt event loop. Screen layout and application logic remain in dedicated GUI modules (`main_window.py` and mixins).
+
+**Functions and Classes:**
+
+- `ORGANIZATION_NAME` (`str`): `"exislow"` — organization name for Qt metadata.
+- `ORGANIZATION_DOMAIN` (`str`): `"exislow.tidal.dl-ng"` — organization domain for Qt metadata.
+- `SIGNAL_POLL_INTERVAL_MS` (`int`): `250` — interval for the signal-dispatch timer.
+- `TOOLTIP_STYLE` (`str`): `"QToolTip { border: 0; }"` — additional QSS for tooltips.
+- `ICON_RESOURCES` (`tuple[tuple[str, int], ...]`): Multi-resolution icon filenames and sizes.
+- `SESSION_RECOVERY_ERRORS` (`tuple[type[Exception], ...]`): Exceptions caught during TIDAL session recovery.
+- `_configure_high_dpi() -> None`: Sets Qt 6 high-DPI scale factor rounding policy to `PassThrough`.
+- `_get_application() -> QtWidgets.QApplication`: Returns the process `QApplication`, creating it if necessary; raises `RuntimeError` if a non-GUI `QCoreApplication` already exists.
+- `_setup_application_metadata(application: QtWidgets.QApplication) -> None`: Sets application name, display name, version, organization name, and domain on the `QApplication`.
+- `_resolve_resource_path(relative_path: str) -> Path`: Resolves a packaged resource path for source or frozen builds by delegating to `tidal_dl_ng.helper.path.resource_path`.
+- `_create_application_icon() -> QtGui.QIcon`: Builds a multi-resolution `QIcon` from `ICON_RESOURCES`, logging warnings for missing files.
+- `_is_frozen_application() -> bool`: Reports whether the process was built by PyInstaller or Nuitka (checks `sys.frozen` or `__compiled__`).
+- `_setup_windows_app_id() -> None`: Sets the Windows AppUserModelID for source builds only (frozen builds provide their own); no-ops on non-Windows or frozen processes.
+- `_setup_exception_hook() -> None`: Replaces `sys.excepthook` to log uncaught GUI exceptions at `CRITICAL` level before delegating to the default hook.
+- `_setup_signal_handlers(application: QtWidgets.QApplication) -> None`: Installs SIGINT/SIGTERM handlers that request `application.quit()`, and starts a `QTimer` to allow Python signal dispatch during Qt event loops.
+- `_ensure_tidal_session(tidal: Tidal | None) -> Tidal | None`: Validates an injected TIDAL session via `check_login()`; falls back to `login_token()` recovery; returns `None` if the session is invalid (triggering interactive login in `MainWindow`).
+- `_load_main_window_class() -> type[MainWindow]`: Dynamically imports and returns the `MainWindow` class after bootstrap dependencies are initialized.
+- `gui_activate(tidal: Tidal | None = None) -> Never`: The main GUI entry point — configures the application, sets up theming/icons/metadata/signal handlers, creates and shows the `MainWindow`, runs the Qt event loop, and raises `SystemExit` with the exit code.
+
+**Dependencies:** `ctypes`, `importlib`, `logging`, `signal`, `sys`, `pathlib.Path`, `typing.TYPE_CHECKING`, `PySide6.QtCore/QtGui/QtWidgets`, `tidalapi.exceptions.TidalAPIError`, `tidal_dl_ng.__name_display__`, `tidal_dl_ng.__version__`, `tidal_dl_ng.logger.enable_debug_and_warnings`, `tidal_dl_ng.config.Tidal`, `tidal_dl_ng.gui.main_window.MainWindow`, `tidal_dl_ng.helper.path.resource_path`, `qdarktheme` (via `importlib.import_module`).
+
+**Relationships:**
+- Exported by `tidal_dl_ng/gui/__init__.py` as `gui_activate`.
+- Called by `tidal_dl_ng/cli.py` (when `--gui` flag is passed) and by the `tidal-dl-ng-gui` console script entry point.
+- Imports `MainWindow` from `tidal_dl_ng.gui.main_window`, which composes all GUI mixins.
+- Receives an optional `Tidal` session from `tidal_dl_ng.config` (injected by the CLI when a token is already loaded).
+- Uses `enable_debug_and_warnings` from `tidal_dl_ng.logger` to toggle verbose logging.
+- Uses `resource_path` from `tidal_dl_ng.helper.path` to resolve icon resources.
+- Uses `__name_display__` and `__version__` from `tidal_dl_ng` (the package root) for application metadata.
+
+**Inputs and Outputs:**
+- **Inputs:** Optional `Tidal` session object (from CLI injection); `sys.argv` (for `--debug`/`-d` flags); `sys.platform` (for Windows AppUserModelID); Qt Designer UI resources (icon PNG files).
+- **Outputs:** Runs the Qt event loop until exit; raises `SystemExit` with the Qt exit code; logs startup/shutdown messages.
+
+**Goals:**
+1. Centralize all process-level Qt bootstrap configuration in one module to keep `main_window.py` focused on screen layout and application logic.
+2. Ensure consistent high-DPI, theming, and desktop integration across source and frozen builds.
+3. Provide robust session recovery so injected CLI sessions are validated before GUI startup.
+4. Ensure graceful shutdown and proper exception logging for all GUI crashes.
+5. Keep the module importable without side effects (configuration only runs when `gui_activate()` is called).
+
+**Notes:**
+- The `qdarktheme` module is imported via `importlib.import_module` at module level to avoid a hard import-time dependency; this allows the module to be imported even if `qdarktheme` is not yet installed (though `gui_activate()` will fail without it).
+- `_resolve_resource_path` uses `importlib.import_module` to access `resource_path` to avoid potential circular imports during early bootstrap; however, since `activate.py` is only loaded at GUI startup (after all other modules are initialized), a direct import from `tidal_dl_ng.helper.path` is safe and preferred for DRY compliance.
+- The `_allow_python_signal_dispatch` inner function in `_setup_signal_handlers` is currently a no-op (empty body) — it exists solely so the `QTimer` callback has a callable to connect to; Python's signal handling is triggered implicitly by the timer firing and returning control to the Python interpreter.
+- `SESSION_RECOVERY_ERRORS` includes `AttributeError`, `OSError`, `TidalAPIError`, `TypeError`, and `ValueError` — these cover the most common failure modes when validating or recovering a TIDAL session (missing attributes, network errors, API errors, type mismatches, and invalid values).
+- Frozen builds (PyInstaller/Nuitka) automatically get verbose debug logging enabled, while source builds require the `--debug`/`-d` flag.
+- The module uses `from __future__ import annotations` for PEP 604/585 style annotations on Python 3.14.
+
+---
+
 ## File: stubs/coloredlogs/**init**.pyi
 
 **File Path:** `stubs/coloredlogs/__init__.pyi`
@@ -376,11 +437,447 @@ This documentation should be kept synchronized with the source code to ensure it
 
 **Inputs and Outputs:**
 - **Inputs:** `QDialog` instance passed to `setupUi` and `retranslateUi`.
-- **Outputs:** Mutated `QDialog` with all child widgets laid out; no return values from `setupUi` or `retranslateUi`.
 
-**Goals:** Provide minimal but accurate type information for the auto-generated `Ui_DialogVersion` class to satisfy strict type checking (`disallow_any_*`) without runtime overhead, while mirroring the Qt UI class interface that the project relies on for the version dialog.
+---
 
-**Notes:** This is a stub file (`.pyi`), not executable source. The class name `Ui_DialogVersion` and method names `setupUi`/`retranslateUi` are Qt Designer-generated names that do not follow PEP 8 snake_case conventions — they are added to `good-names` and `ignore-names` in `pyproject.toml`. The stub omits the module docstring and class docstring per PEP 695/PYI021 (no docstrings in `.pyi` files). The real source is generated from `dialog_version.ui` by `pyuic6` and should not be manually edited. The stub removes `pb_check_update` and `pb_close` which do not exist in the real source, and adds `l_h_version`, `l_name_app`, `l_url_github` which were missing.
+## File: tidal_dl_ng/gui/context_menus.py
+
+**File Path:** `tidal_dl_ng/gui/context_menus.py`
+
+**Purpose:** Provide context-menu actions for the main TIDAL Downloader window — results tree, download queue, and user lists — while delegating expensive work to the application's worker thread.
+
+**Description:** This module defines the `ContextMenusMixin` class, a GUI mixin composed into `MainWindow` alongside other mixins (`DownloadsMixin`, `PlaylistMembershipMixin`, etc.). It coordinates context-menu display and user-initiated actions (download full album, mark track as downloaded/not-downloaded, copy share URL, remove queue items, download all albums from a playlist/mix, in-app search, and browser search). The mixin only handles menu coordination and GUI-thread scheduling; API clients, queue managers, and history services use explicit typed interfaces so failures are caught before the GUI is launched. Session validation (`_ensure_session_valid`) and album loading with rate limiting (`_load_albums_with_rate_limiting`) are also provided here, sharing the same `SESSION_ERRORS` exception tuple used in `tidal_dl_ng/gui/downloads.py` and `tidal_dl_ng/gui/activate.py`.
+
+**Functions and Classes:**
+
+- `SearchMediaType` (`type[Track | Video | Album | Artist | Playlist | Mix]`): PEP 695 type alias for TIDAL media types used in search.
+- `SEARCH_TYPE_MAP` (`dict[str, SearchMediaType]`): Maps lowercase category names to their corresponding TIDAL media type classes.
+- `SESSION_ERRORS` (`tuple[type[Exception], ...]`): Exceptions caught during TIDAL session validation and recovery — `AttributeError`, `OSError`, `TidalAPIError`, `TypeError`, `ValueError`. This duplicates the same tuple in `downloads.py` (which additionally includes `RuntimeError`) and `activate.py` (as `SESSION_RECOVERY_ERRORS`).
+- `ContextMenusMixin`: Mixin class providing context-menu coordination for the main window.
+  - **Class Attributes:** Typed declarations for all GUI widgets and managers the mixin expects from `MainWindow` (`tidal`, `settings`, `s_statusbar_message`, `tr_results`, `tr_queue_download`, `tr_lists_user`, `proxy_tr_results`, `model_tr_results`, `history_service`, `playlist_manager`, `queue_manager`, `search_manager`, `cb_search_type`, `l_search`, `thread_it`, `on_mark_track_as_not_downloaded`, `on_mark_track_as_downloaded`).
+  - `_ALBUM_FETCH_MAX_RETRIES` (`int`): Maximum retry attempts when loading albums (default: 2).
+  - `_ensure_session_valid() -> bool`: Validates the TIDAL session via `check_login()`; falls back to `login_token()` recovery; emits a status-bar message on failure.
+  - `menu_context_tree_results(point: QPoint) -> None`: Shows context menu for a result row (download full album, mark downloaded/not-downloaded, copy share URL).
+  - `menu_context_queue_download(point: QPoint) -> None`: Shows removal action for a waiting queue item.
+  - `on_queue_download_remove_item(item: QTreeWidgetItem) -> None`: Removes a top-level waiting item from the download queue.
+  - `on_copy_url_share(tree_target, point) -> None`: Copies the selected media item's share URL to the clipboard.
+  - `_share_url(media: MediaItem) -> str`: Static method returning a validated share URL from a media object.
+  - `thread_download_list_media(point: QPoint) -> None`: Schedules media download from a selected list on the worker thread.
+  - `thread_download_album_from_track(point: QPoint) -> None`: Schedules loading the full album for a selected track on the worker thread.
+  - `on_download_album_from_track(point: QPoint) -> None`: Loads a selected track's album and adds it to the queue (direct call).
+  - `_album_id_at(point: QPoint) -> str | None`: Resolves an album ID from a result row.
+  - `_download_album_by_id(album_id: str) -> None`: Loads one album and schedules its GUI queue insertion.
+  - `_enqueue_item_on_gui_thread(queue_item: QueueDownloadItem) -> None`: Posts a queue insertion to the queue widget's Qt thread via `QTimer.singleShot`.
+  - `on_download_all_albums_from_playlist(point: QPoint) -> None`: Fetches every unique album in a playlist or mix and queues them with rate limiting.
+  - `_media_list_name(media_list: Playlist | UserPlaylist | Mix) -> str`: Static method returning a display name for a playlist or mix.
+  - `_extract_album_ids_from_tracks(media_items: list[object]) -> dict[str, Album]`: Extracts unique album objects from track and video results.
+  - `_load_albums_with_rate_limiting(album_ids: dict[str, Album]) -> dict[str, Album]`: Loads albums with configurable batching and retry behavior.
+  - `_handle_album_load_error(error: Exception, album_id: str) -> bool`: Handles one album load error and decides whether to continue.
+  - `_is_authentication_error(error: Exception) -> bool`: Static method identifying common authentication failures by message content.
+  - `_queue_loaded_albums(albums: dict[str, Album]) -> None`: Converts loaded albums to queue items and enqueues them.
+  - `on_search_in_app(search_term: str, search_type: str) -> None`: Schedules an in-app search using the selected media category.
+  - `on_search_in_browser(search_term: str, search_type: str) -> None`: Opens a TIDAL search URL in the default browser.
+
+**Dependencies:** `time`, `urllib.parse`, `functools.partial`, `typing.TYPE_CHECKING`, `typing.cast`, `PySide6.QtCore`, `PySide6.QtGui`, `PySide6.QtWidgets`, `tidalapi.album.Album`, `tidalapi.artist.Artist`, `tidalapi.exceptions.TidalAPIError`, `tidalapi.media.Track`, `tidalapi.media.Video`, `tidalapi.mix.Mix`, `tidalapi.playlist.Playlist`, `tidalapi.playlist.UserPlaylist`, `tidal_dl_ng.constants.QueueDownloadStatus`, `tidal_dl_ng.helper.tidal` (as `tidal_helper`), `tidal_dl_ng.helper.gui.MediaItem`, `tidal_dl_ng.helper.gui.get_results_media_item`, `tidal_dl_ng.helper.gui.get_user_list_media_item`, `tidal_dl_ng.helper.tidal.name_builder_artist`, `tidal_dl_ng.logger.logger_gui`, `tidal_dl_ng.model.gui_data.QueueDownloadItem`, `tidal_dl_ng.model.gui_data.StatusbarMessage`.
+
+**Relationships:**
+- Composed into `MainWindow` via `tidal_dl_ng/gui/main_window.py` (line 93: `ContextMenusMixin` in the class bases).
+- Shares `SESSION_ERRORS` with `tidal_dl_ng/gui/downloads.py` (which defines a slightly different tuple including `RuntimeError`) and `tidal_dl_ng/gui/activate.py` (as `SESSION_RECOVERY_ERRORS`).
+- Uses `get_results_media_item` and `get_user_list_media_item` from `tidal_dl_ng.helper.gui` to resolve media items from tree views.
+- Uses `items_results_all` from `tidal_dl_ng.helper.tidal` to fetch all tracks from a playlist or mix.
+- Uses `name_builder_artist` from `tidal_dl_ng.helper.tidal` to build artist display names.
+- Delegates download queue management to `GuiQueueManager` (via `queue_manager.media_to_queue_download_model` and `queue_manager.queue_download_media`).
+- Delegates playlist download to `GuiPlaylistManager` (via `playlist_manager.on_download_list_media`).
+- Delegates search to `GuiSearchManager` (via `search_manager.search_populate_results`).
+- Uses `HistoryService` (via `history_service.is_downloaded`) to check download status.
+- Uses `StatusbarMessage` from `tidal_dl_ng.model.gui_data` to emit status-bar messages.
+
+**Inputs and Outputs:**
+- **Inputs:** `QtCore.QPoint` (context menu position), `QtWidgets.QTreeWidgetItem` (queue item), `str` (search term, search type, album ID), `dict[str, Album]` (loaded albums), `list[object]` (media items from TIDAL), `Exception` (album load error).
+- **Outputs:** Context menus (shown synchronously), status-bar messages (emitted via `s_statusbar_message`), queue items (enqueued via `QTimer.singleShot`), browser URLs (opened via `QDesktopServices.openUrl`).
+
+**Goals:**
+1. Centralize all context-menu coordination logic in a single mixin to keep `MainWindow` focused on screen layout and application state.
+2. Ensure expensive operations (album loading, playlist fetching) are delegated to the worker thread via `thread_it` or `QTimer.singleShot`.
+3. Provide robust session validation and recovery before API calls.
+4. Implement rate-limited album loading with retry logic for bulk playlist operations.
+5. Keep the mixin importable without side effects (no module-level code execution).
+
+**Notes:**
+- `SESSION_ERRORS` is duplicated across `context_menus.py`, `downloads.py`, and `activate.py` (as `SESSION_RECOVERY_ERRORS`). The `downloads.py` version includes `RuntimeError` which the other two omit — this is a potential inconsistency that should be resolved by centralizing the tuple in a shared location (e.g., `tidal_dl_ng/constants.py`).
+- The `_ensure_session_valid` method in `context_menus.py` differs slightly from `_ensure_tidal_session` in `downloads.py` — the former uses `self.tidal` (instance attribute) while the latter takes `tidal` as a parameter. Both share the same logic pattern.
+- The `_is_authentication_error` method uses string matching on error messages to detect auth failures — this is a heuristic that could be replaced with proper exception type checking if the TIDAL API provides specific exception types for authentication errors.
+- `on_search_in_browser` constructs TIDAL search URLs using `urllib.parse.quote` for safe URL encoding.
+- The mixin uses `functools.partial` extensively to bind method arguments for Qt signal/slot connections.
+- `on_search_in_app` uses `SEARCH_TYPE_MAP` to map category names to media types, with a fallback to the current combo box selection.
+- The `_enqueue_item_on_gui_thread` method uses `QTimer.singleShot(0, ...)` to post queue insertions to the Qt event loop, ensuring thread safety.
+- `_download_album_by_id` and `on_download_album_from_track` share the `_album_id_at` helper, demonstrating good DRY practice within the mixin.
+
+---
+
+## File: tidal_dl_ng/gui/downloads.py
+
+**File Path:** `tidal_dl_ng/gui/downloads.py`
+
+**Purpose:** Provide download orchestration and queue integration for the main TIDAL Downloader window — converting selected result rows into queue entries and translating GUI download requests into downloader request models.
+
+**Description:** This module defines the `DownloadsMixin` class, a GUI mixin composed into `MainWindow` alongside other mixins (`ContextMenusMixin`, `PlaylistMembershipMixin`, etc.). It owns queue state and widget updates, providing worker-safe service methods that translate GUI download requests into downloader request models. The mixin handles session validation and recovery (`_ensure_tidal_session`), source info resolution (`_resolve_source_info`), result-to-queue conversion (`on_download_results`), download execution (`download`), and result aggregation (`_aggregate_download_results`). It uses `TypeGuard` functions (`_is_downloadable`, `_is_queueable`) for type-safe filtering of TIDAL media objects, and delegates actual download work to the `Download` service via `ItemRequest` models.
+
+**Functions and Classes:**
+
+- `DownloadableMedia` (`type`): PEP 695 type alias for media accepted by the downloader — `Track | Video | Album | Playlist | UserPlaylist | Mix`.
+- `QueueableMedia` (`type`): PEP 695 type alias for media that can be queued — `DownloadableMedia | Artist`.
+- `SESSION_ERRORS` (`tuple[type[Exception], ...]`): Exceptions caught during TIDAL session validation and recovery — `TidalAPIError`, `AttributeError`, `OSError`, `RuntimeError`, `TypeError`, `ValueError`.
+- `DOWNLOAD_ERRORS` (`tuple[type[Exception], ...]`): Alias for `SESSION_ERRORS`, used during download execution.
+- `_is_downloadable(media: object) -> TypeGuard[DownloadableMedia]`: Type guard checking if an object is accepted by the downloader.
+- `_is_queueable(media: object) -> TypeGuard[QueueableMedia]`: Type guard checking if an object can be added to the GUI queue.
+- `DownloadsMixin`: Mixin class providing result-to-queue and download services to `MainWindow`.
+  - **Class Attributes:** Typed declarations for all GUI widgets and managers the mixin expects from `MainWindow` (`tr_results`, `proxy_tr_results`, `model_tr_results`, `queue_manager`, `tidal`, `settings`, `dl`, and signal instances for queue/download lifecycle).
+  - `_ensure_tidal_session(tidal: Tidal) -> bool` (static): Validates the TIDAL session via `check_login()`; falls back to `login_token()` recovery.
+  - `_resolve_source_info(media: DownloadableMedia) -> tuple[str, str | None, str | None]` (static): Builds history provenance for a media object.
+  - `on_download_results() -> None`: Adds every selected results row to the download queue.
+  - `_report_queued_results(queued_count: int) -> None`: Reports how many selected rows entered the queue.
+  - `queue_download_media(queue_item: QueueDownloadItem) -> None`: Adds a prepared item through the central queue manager.
+  - `watcher_queue_download() -> None`: Starts the queue manager's compatibility watcher entry point.
+  - `on_queue_download_item_downloading(item: QTreeWidgetItem) -> None`: Marks a queue item as downloading on the GUI thread.
+  - `on_queue_download_item_finished(item: QTreeWidgetItem) -> None`: Marks a queue item as finished on the GUI thread.
+  - `on_queue_download_item_failed(item: QTreeWidgetItem) -> None`: Marks a queue item as failed on the GUI thread.
+  - `on_queue_download_item_skipped(item: QTreeWidgetItem) -> None`: Marks a queue item as skipped on the GUI thread.
+  - `queue_download_item_status(item: QTreeWidgetItem, status: str) -> None`: Sets a queue item's status through the queue manager.
+  - `on_queue_download(media: QueueableMedia, quality_audio: Quality | None, quality_video: QualityVideo | None) -> QueueDownloadStatus`: Downloads queued media and returns its aggregate status.
+  - `_aggregate_download_results(results: list[QueueDownloadStatus]) -> QueueDownloadStatus` (static): Combines item results into one queue status.
+  - `download(media: DownloadableMedia, downloader: Download, delay_track: bool, quality_audio: Quality | None, quality_video: QualityVideo | None) -> QueueDownloadStatus`: Downloads one item or collection through the request-object API.
+  - `_report_download_failure(reason: str) -> None`: Publishes a contextual download failure to the status bar.
+
+**Dependencies:** `typing.TYPE_CHECKING`, `typing.TypeGuard`, `PySide6.QtCore`, `PySide6.QtGui`, `PySide6.QtWidgets`, `tidalapi.album.Album`, `tidalapi.artist.Artist`, `tidalapi.exceptions.TidalAPIError`, `tidalapi.media.Quality`, `tidalapi.media.Track`, `tidalapi.media.Video`, `tidalapi.mix.Mix`, `tidalapi.playlist.Playlist`, `tidalapi.playlist.UserPlaylist`, `tidal_dl_ng.config.HandlingApp`, `tidal_dl_ng.config.Settings`, `tidal_dl_ng.config.Tidal`, `tidal_dl_ng.constants.QualityVideo`, `tidal_dl_ng.constants.QueueDownloadStatus`, `tidal_dl_ng.download.Download`, `tidal_dl_ng.helper.gui.get_results_media_item`, `tidal_dl_ng.helper.gui.HumanProxyModel`, `tidal_dl_ng.helper.path.get_format_template`, `tidal_dl_ng.helper.tidal.items_results_all`, `tidal_dl_ng.logger.logger_gui`, `tidal_dl_ng.model.downloader.ItemRequest`, `tidal_dl_ng.model.gui_data.QueueDownloadItem`, `tidal_dl_ng.model.gui_data.StatusbarMessage`, `tidal_dl_ng.gui.queue.GuiQueueManager`.
+
+**Relationships:**
+- Composed into `MainWindow` via `tidal_dl_ng/gui/main_window.py` (line 21: imports `DownloadsMixin`).
+- Shares `SESSION_ERRORS` with `tidal_dl_ng/gui/context_menus.py` (which omits `RuntimeError`) and `tidal_dl_ng/gui/activate.py` (as `SESSION_RECOVERY_ERRORS`, which also omits `RuntimeError`).
+- Uses `get_results_media_item` from `tidal_dl_ng.helper.gui` to resolve media items from tree views.
+- Uses `items_results_all` from `tidal_dl_ng.helper.tidal` to fetch all tracks from an artist.
+- Uses `get_format_template` from `tidal_dl_ng.helper.path` to resolve file template configuration.
+- Uses `ItemRequest` from `tidal_dl_ng.model.downloader` to construct download request models.
+- Uses `HandlingApp` from `tidal_dl_ng.config` for abort coordination.
+- Delegates download queue management to `GuiQueueManager` (via `queue_manager.media_to_queue_download_model`, `queue_manager.queue_download_media`, etc.).
+- Delegates actual download work to `Download` service (via `downloader.item()` and `downloader.items()`).
+- Uses `StatusbarMessage` from `tidal_dl_ng.model.gui_data` to emit status-bar messages.
+- Uses `QueueDownloadStatus` from `tidal_dl_ng.constants` for download result enumeration.
+
+**Inputs and Outputs:**
+- **Inputs:** `QtCore.QModelIndex` (selected result rows), `QueueDownloadItem` (prepared queue entry), `QueueableMedia` (media or artist queued for download), `DownloadableMedia` (item or collection to download), `Quality | None` (audio quality), `QualityVideo | None` (video quality), `bool` (track delay flag), `Download` (configured downloader service).
+- **Outputs:** `QueueDownloadStatus` (Finished, Skipped, or Failed), `StatusbarMessage` (emitted via `s_statusbar_message`), `None` (queue operations and widget updates).
+
+**Goals:**
+1. Centralize all download orchestration and queue integration logic in a single mixin to keep `MainWindow` focused on screen layout and application state.
+2. Provide type-safe filtering of TIDAL media objects using `TypeGuard` functions for downloadability and queueability.
+3. Ensure session validation and recovery before API calls, with graceful fallback to interactive login.
+4. Convert selected result rows into queue entries with proper error handling and user feedback.
+5. Translate GUI download requests into downloader request models (`ItemRequest`) with source provenance tracking.
+6. Aggregate individual download results into a single queue status for the caller.
+7. Keep the mixin importable without side effects (no module-level code execution).
+
+**Notes:**
+- `SESSION_ERRORS` is duplicated across `context_menus.py`, `downloads.py`, and `activate.py` (as `SESSION_RECOVERY_ERRORS`). The `downloads.py` version includes `RuntimeError` which the other two omit — this is a potential inconsistency that should be resolved by centralizing the tuple in a shared location (e.g., `tidal_dl_ng/constants.py`).
+- The `_ensure_tidal_session` method in `downloads.py` differs slightly from `_ensure_session_valid` in `context_menus.py` — the former takes `tidal` as a parameter while the latter uses `self.tidal` (instance attribute). Both share the same logic pattern.
+- `DOWNLOAD_ERRORS` is an alias for `SESSION_ERRORS`, used in the `download` method's exception handler to catch the same set of errors during download execution.
+- The `_is_downloadable` and `_is_queueable` functions use `TypeGuard` for type narrowing, enabling the type checker to infer the correct type after the guard check.
+- The `download` method uses `isinstance(media, Track | Video)` to distinguish single-item downloads (via `downloader.item()`) from collection downloads (via `downloader.items()`).
+- The `_resolve_source_info` method handles all `DownloadableMedia` types, extracting source type, ID, and name for history provenance.
+- The `_aggregate_download_results` method prioritizes `Failed` over `Finished` over `Skipped` when combining results.
+- The `on_download_results` method reschedules itself on the GUI thread if called from a worker thread, using `QTimer.singleShot`.
+
+---
+
+## File: tidal_dl_ng/gui/history.py
+
+**File Path:** `tidal_dl_ng/gui/history.py`
+
+**Purpose:** Coordinate download-history actions for the main application window — connecting history services to dialogs, status messages, and the results model.
+
+**Description:** This module defines the `HistoryMixin` class, a GUI mixin composed into `MainWindow` alongside other mixins (`DownloadsMixin`, `ContextMenusMixin`, etc.). It bridges the persistent history service (`tidal_dl_ng.history.HistoryService`) with the GUI layer, providing methods for viewing download history, toggling duplicate-download prevention, marking tracks as downloaded/not-downloaded, opening preferences, and saving settings. The mixin uses a `Protocol` (`_HistorySignalOwner`) to structurally type the Qt signals supplied by the concrete main window, and delegates concrete implementations of `apply_settings` and `_init_dl` to the host class. Persistent history work remains in `tidal_dl_ng.history`, while dialog construction remains in dedicated dialog modules.
+
+**Functions and Classes:**
+
+- `DOWNLOADED_MARKER` (`str`): Unicode check mark used to mark downloaded tracks in the results model (`\N{WHITE HEAVY CHECK MARK}`).
+- `STATUS_TIMEOUT_SHORT_MS` (`int`): Short status message timeout (2,500ms).
+- `STATUS_TIMEOUT_ERROR_MS` (`int`): Error status message timeout (3,000ms).
+- `HISTORY_WRITE_ERRORS` (`tuple[type[Exception], ...]`): Exceptions caught during history write operations — `OSError`, `TypeError`, `ValueError`.
+- `_HistorySignalOwner` (`Protocol`): Structural protocol describing Qt signals supplied by the concrete main window (`s_settings_save`, `s_statusbar_message`).
+- `HistoryMixin`: Mixin class coordinating history operations supplied by the main window.
+  - **Class Attributes:** Typed declarations for all GUI widgets and services the mixin expects from `MainWindow` (`DOWNLOADED_COLUMN`, `history_service`, `proxy_tr_results`, `model_tr_results`, `settings`).
+  - `_track_source_info(track: Track) -> tuple[str, str | None, str | None]` (static): Resolves the most useful source metadata for a track.
+  - `on_view_history() -> None`: Opens the modal download-history dialog.
+  - `on_toggle_duplicate_prevention(enabled: bool) -> None`: Persists the duplicate-download prevention preference.
+  - `on_mark_track_as_downloaded(track: Track, index: QModelIndex) -> None`: Adds a track to history and updates its results-model marker.
+  - `on_mark_track_as_not_downloaded(track_id: str, index: QModelIndex) -> None`: Removes a track from history and clears its model marker.
+  - `_update_downloaded_column(index: QModelIndex, *, is_downloaded: bool) -> None`: Updates the downloaded marker for a results-model row.
+  - `on_preferences() -> None`: Opens the modal application-preferences dialog.
+  - `on_settings_save() -> None`: Persists settings, reapplies them, and rebuilds download services.
+  - `apply_settings(settings: Settings) -> None`: Applies settings through the concrete main-window implementation.
+  - `_init_dl() -> None`: Rebuilds download services in the concrete main window.
+  - `_show_status(message: str, timeout: int) -> None`: Emits a transient main-window status message.
+  - `_signal_owner() -> _HistorySignalOwner`: Returns a structural view of main-window history signals.
+  - `_dialog_parent() -> QWidget | None`: Returns this mixin's concrete Qt widget for dialog ownership.
+
+**Dependencies:** `typing.TYPE_CHECKING`, `typing.cast`, `PySide6.QtCore`, `PySide6.QtGui`, `PySide6.QtWidgets`, `tidal_dl_ng.dialog.DialogPreferences`, `tidal_dl_ng.dialog_history.DialogHistory`, `tidal_dl_ng.logger.logger_gui`, `tidal_dl_ng.model.gui_data.StatusbarMessage`, `tidalapi.media.Track` (TYPE_CHECKING), `tidal_dl_ng.config.Settings` (TYPE_CHECKING), `tidal_dl_ng.helper.gui.HumanProxyModel` (TYPE_CHECKING), `tidal_dl_ng.history.HistoryService` (TYPE_CHECKING).
+
+**Relationships:**
+- Composed into `MainWindow` via `tidal_dl_ng/gui/main_window.py` (line 22: imports `HistoryMixin`).
+- Uses `HistoryService` from `tidal_dl_ng.history` for persistent download history operations.
+- Uses `DialogHistory` from `tidal_dl_ng.dialog_history` to display the download history dialog.
+- Uses `DialogPreferences` from `tidal_dl_ng.dialog` to display the application preferences dialog.
+- Uses `StatusbarMessage` from `tidal_dl_ng.model.gui_data` to emit status-bar messages.
+- Uses `HumanProxyModel` from `tidal_dl_ng.helper.gui` for proxy-model index mapping.
+- Uses `DOWNLOADED_MARKER` constant in tests (`tests/test_gui_history.py`).
+- The `_HistorySignalOwner` Protocol provides structural typing for Qt signals, avoiding hard coupling to `MainWindow`.
+- `HISTORY_WRITE_ERRORS` is similar to but distinct from `SESSION_ERRORS` in `downloads.py`/`context_menus.py` and `COVER_URL_ERRORS` in `covers.py` — it catches errors specific to history write operations.
+
+**Inputs and Outputs:**
+- **Inputs:** `Track` (TIDAL track object), `QModelIndex` (proxy-model index for track row), `str` (track ID, status message), `bool` (duplicate prevention enabled, downloaded state), `int` (status timeout in milliseconds), `Settings` (application settings).
+- **Outputs:** `StatusbarMessage` (emitted via `s_statusbar_message`), `None` (dialog operations, model updates, settings persistence).
+
+**Goals:**
+1. Centralize all download-history GUI coordination in a single mixin to keep `MainWindow` focused on screen layout and application state.
+2. Bridge the persistent history service with the GUI layer using structural typing (`Protocol`) for Qt signal access.
+3. Provide user feedback through status-bar messages for all history operations (success and failure).
+4. Update the results model to reflect downloaded/not-downloaded state with visual markers.
+5. Keep the mixin importable without side effects (no module-level code execution).
+6. Delegate concrete settings application and download service initialization to the host `MainWindow`.
+
+**Notes:**
+- `HISTORY_WRITE_ERRORS` (`OSError`, `TypeError`, `ValueError`) is similar to but distinct from `SESSION_ERRORS` in `downloads.py`/`context_menus.py` and `COVER_URL_ERRORS` in `covers.py` — it catches errors specific to history write operations (file I/O, type mismatches, invalid values).
+- The `_HistorySignalOwner` Protocol uses `@property` with `raise NotImplementedError` to provide type information without runtime implementation — the concrete `MainWindow` supplies the actual signal instances.
+- The `_signal_owner` method uses `cast("_HistorySignalOwner", self)` to provide structural typing, since the mixin is composed into `MainWindow` which provides the required signals.
+- The `_track_source_info` method prefers album metadata for normal search results, falling back to track-level metadata when album info is unavailable.
+- The `_update_downloaded_column` method maps proxy-model indices to source indices and updates the `DOWNLOADED_COLUMN` item text and alignment.
+- The `on_mark_track_as_not_downloaded` method checks if a track was actually in history before updating the model (avoiding unnecessary UI updates).
+- The `apply_settings` and `_init_dl` methods raise `NotImplementedError` — they are intended to be overridden by the concrete `MainWindow` class.
+- The `_dialog_parent` method checks `isinstance(self, QtWidgets.QWidget)` to handle both real `MainWindow` instances and test doubles.
+
+---
+
+## File: stubs/tidal_dl_ng/ui/dialog_version.pyi
+
+**File Path:** `stubs/tidal_dl_ng/ui/dialog_version.pyi`
+
+**Purpose:** Type stub for the generated `Ui_DialogVersion` class from the Qt Designer UI file `dialog_version.ui`, enabling static type checking (Pyright/Mypy/Pylint) of the version dialog UI class used in `tidal_dl_ng/gui/updates.py`.
+
+**Description:** Declares the public interface of the auto-generated `Ui_DialogVersion` class — a Qt widget class produced by Qt Designer's `pyuic6` code generator. The class provides `setupUi` and `retranslateUi` methods for constructing the version/update dialog layout, plus typed widget instance attributes for all UI elements (labels, push buttons).
+
+**Functions and Classes:**
+
+- `Ui_DialogVersion`: Qt widget UI class generated from `dialog_version.ui`.
+  - `setupUi(dialog: QDialog) -> None`: Sets up the dialog layout — creates and arranges all child widgets within the provided `QDialog` instance.
+  - `retranslateUi(dialog: QDialog) -> None`: Updates all UI text strings for the current locale.
+  - `l_version: QLabel`: Label showing the currently installed version.
+  - `l_error: QLabel`: Label showing error messages.
+  - `l_error_details: QLabel`: Label showing detailed error information.
+  - `l_h_version: QLabel`: Header label for the installed version.
+  - `l_h_version_new: QLabel`: Header label for the new version.
+  - `l_version_new: QLabel`: Label showing the available new version.
+  - `l_changelog: QLabel`: Label for the changelog section.
+  - `l_changelog_details: QLabel`: Label showing changelog details.
+  - `l_name_app: QLabel`: Label showing the application name.
+  - `l_url_github: QLabel`: Label with a link to the GitHub repository.
+  - `pb_download: QPushButton`: Button to download the new version.
+
+**Dependencies:** `PySide6.QtWidgets.QDialog`, `PySide6.QtWidgets.QLabel`, `PySide6.QtWidgets.QPushButton`.
+
+**Relationships:** Consumed by `tidal_dl_ng/gui/updates.py` which instantiates `Ui_DialogVersion()` and calls `setupUi(dialog)` to build the version/update dialog. The dialog is used for checking and displaying application updates.
+
+**Inputs and Outputs:**
+- **Inputs:** `QDialog` instance passed to `setupUi` and `retranslateUi`.
+
+---
+
+## File: tidal_dl_ng/gui/covers.py
+
+**File Path:** `tidal_dl_ng/gui/covers.py`
+
+**Purpose:** Coordinate asynchronous cover image loading, caching, and display for the TIDAL Downloader GUI — downloading cover bytes on worker threads and confining `QPixmap` creation and widget updates to the Qt GUI thread.
+
+**Description:** This module defines the `CoverManager` class, a GUI component composed into `MainWindow` (alongside `ContextMenusMixin`, `DownloadsMixin`, etc.). It manages the full lifecycle of cover image display: extracting cover URLs from TIDAL media objects, downloading image bytes with retry/backoff/redirect handling on `QThreadPool` workers, caching decoded pixmaps in a thread-safe LRU cache (`CoverPixmapCache`), and posting GUI-thread callbacks for pixmap creation and widget updates. The manager ensures the newest cover request always wins (preventing stale downloads from overwriting more recent selections), preloads covers for playlists in bounded batches, and coordinates spinner visibility for user feedback. All `QPixmap` operations are confined to the GUI thread because pixmaps are GUI resources rather than worker-safe image containers.
+
+**Functions and Classes:**
+
+- `DEFAULT_COVER_RESOURCE` (`str`): Path to the packaged fallback cover image.
+- `MAX_PRELOAD_COVERS` (`int`): Maximum number of playlist covers to preload (default: 50).
+- `COVER_DOWNLOAD_MAX_ATTEMPTS` (`int`): Maximum retry attempts for cover downloads (default: 3).
+- `COVER_DOWNLOAD_BACKOFF_SEC` (`float`): Base backoff seconds between retries (default: 0.5).
+- `COVER_DOWNLOAD_MAX_REDIRECTS` (`int`): Maximum HTTP redirects to follow (default: 3).
+- `MAX_COVER_BYTES` (`int`): Maximum cover response size in bytes (default: 20 MB).
+- `HTTP_SUCCESS_MIN` (`int`): Minimum HTTP success status code (200).
+- `HTTP_SUCCESS_MAX_EXCLUSIVE` (`int`): Exclusive upper bound for HTTP success (300).
+- `TRANSIENT_HTTP_STATUS_CODES` (`frozenset[int]`): HTTP status codes eligible for retry (408, 425, 429, 500, 502, 503, 504).
+- `COVER_URL_ERRORS` (`tuple[type[Exception], ...]`): Exceptions caught when extracting cover URLs (`AttributeError`, `IndexError`, `TypeError`, `ValueError`).
+- `CoverManager`: Class coordinating non-blocking cover downloads and GUI display updates.
+  - `__init__(parent_window, threadpool, info_tab_widget) -> None`: Initializes cover state, worker dependencies, and spinner signals.
+  - `_get_signal(parent_window, name) -> SignalInstance`: Static method returning a required Qt signal from the parent window.
+  - `_coerce_cover_bytes(data_cover) -> bytes`: Static method normalizing downloaded cover payload to immutable bytes.
+  - `_pixmap_from_bytes(data_cover) -> QPixmap`: Static method creating a pixmap from cover data on the GUI thread.
+  - `load_cover(media, use_cache_check=True) -> None`: Loads and displays a media cover without blocking the GUI.
+  - `_load_cover_async(cover_url, spinner_started) -> None`: Downloads one cover in a worker and posts its result to the GUI.
+  - `_download_cover_bytes(cover_url) -> bytes`: Static method downloading cover bytes with timeout, retry, and response cleanup.
+  - `_request_cover_bytes(cover_url) -> tuple[int, bytes, str | None]`: Static method performing one validated HTTP cover request.
+  - `_handle_cover_bytes(cover_url, data_cover, spinner_started) -> None`: Decodes, caches, and conditionally displays downloaded cover bytes.
+  - `_get_cover_url(media) -> str | None`: Static method extracting and validating a cover URL from a TIDAL media object.
+  - `_normalize_url(value) -> str | None`: Static method returning a stripped URL from an arbitrary image-method result.
+  - `_display_cover(pixmap, url) -> None`: Displays a valid pixmap and synchronizes current-cover state.
+  - `_display_default_cover() -> None`: Displays the packaged fallback cover and resets URL state.
+  - `preload_covers_for_playlist(items) -> None`: Preloads a bounded set of playlist covers in one worker.
+  - `_cache_preloaded_cover(cover_url, data_cover) -> None`: Decodes and caches one preloaded cover on the GUI thread.
+  - `_queue_cover_fetch(media) -> None`: Queues a thread-safe foreground cover request.
+  - `_fetch_cover_pixmap(media, use_cache_check) -> QPixmap | None`: Returns a cached pixmap or queues a non-blocking cover fetch.
+  - `_start_spinner() -> bool`: Starts the cover spinner when its target widget is available.
+  - `_post_to_gui(callback) -> None`: Schedules a callback on the info controller's Qt thread.
+  - `_is_gui_thread() -> bool`: Checks whether the caller is running on the info tab's Qt thread.
+  - `_reserve_url(cover_url) -> bool`: Reserves a URL to avoid duplicate foreground downloads.
+  - `_release_url(cover_url) -> None`: Releases a completed foreground URL reservation.
+
+**Dependencies:** `time`, `functools.partial`, `http.client.HTTPException`, `itertools.islice`, `pathlib.Path`, `threading.Lock`, `typing.TYPE_CHECKING`, `typing.cast`, `urllib.parse.urljoin`, `urllib.parse.urlsplit`, `requests`, `PySide6.QtCore`, `PySide6.QtGui`, `tidalapi.album.Album`, `tidal_dl_ng.cache.CoverPixmapCache`, `tidal_dl_ng.constants.REQUESTS_TIMEOUT_SEC`, `tidal_dl_ng.helper.path.resource_path`, `tidal_dl_ng.logger.logger_gui`, `tidal_dl_ng.worker.Worker`.
+
+**Relationships:**
+- Composed into `MainWindow` via `tidal_dl_ng/gui/main_window.py` (line 115: `cover_manager: CoverManager`, line 235: `self.cover_manager = CoverManager(...)`).
+- Referenced by `tidal_dl_ng/gui/signals.py` (line 94: `cover_manager: CoverManager` in `MainWindowSignals`).
+- Referenced by `tidal_dl_ng/gui/track_extras.py` (line 41: `cover_manager: CoverManager`).
+- Referenced by `tidal_dl_ng/gui/trees_results.py` (line 65: `cover_manager: "CoverManager"`).
+- Uses `CoverPixmapCache` from `tidal_dl_ng.cache` for thread-safe LRU pixmap caching.
+- Uses `Worker` from `tidal_dl_ng.worker` for thread pool task execution.
+- Uses `resource_path` from `tidal_dl_ng.helper.path` to resolve the default cover resource path.
+- Uses `REQUESTS_TIMEOUT_SEC` from `tidal_dl_ng.constants` for HTTP request timeouts.
+- Uses `logger_gui` from `tidal_dl_ng.logger` for logging.
+- Uses `Album` from `tidalapi.album` to type-check media objects with album covers.
+
+**Inputs and Outputs:**
+- **Inputs:** `object` (TIDAL media objects with `album` or `image` attributes), `QtCore.QThreadPool` (for worker execution), `InfoTabWidget` (for display updates), `str` (cover URLs), `bytes` (downloaded image data), `Iterable[object]` (playlist items for preloading).
+- **Outputs:** `QtGui.QPixmap` (displayed covers, cached or returned), `QtCore.SignalInstance` (spinner start/stop signals), `None` (async operations post callbacks to the GUI thread).
+
+**Goals:**
+1. Centralize all cover image loading, caching, and display logic in a single manager to keep `MainWindow` focused on screen layout and application state.
+2. Ensure `QPixmap` creation and widget updates are confined to the Qt GUI thread, while network downloads run on worker threads.
+3. Prevent stale cover downloads from overwriting more recently selected covers (newest-request-wins semantics).
+4. Implement robust HTTP download with timeout, retry with backoff, redirect following, and size limits.
+5. Preload covers for playlists in bounded batches to improve perceived performance.
+6. Coordinate spinner visibility for user feedback during cover loading.
+
+**Notes:**
+- The `COVER_URL_ERRORS` tuple (`AttributeError`, `IndexError`, `TypeError`, `ValueError`) is similar to but distinct from `SESSION_ERRORS` in `context_menus.py` and `activate.py` — it catches errors specific to URL extraction from media objects.
+- The `_get_cover_url` method handles both `Album` objects (via `album.image()`) and generic media objects (via `media.image()` callable), providing flexibility for different TIDAL media types.
+- The `_normalize_url` method uses the walrus operator (`:=`) for concise URL stripping and validation.
+- The `_download_cover_bytes` method implements a retry loop with exponential backoff (`COVER_DOWNLOAD_BACKOFF_SEC * attempt`) and redirect following, with a maximum of `COVER_DOWNLOAD_MAX_REDIRECTS` redirects.
+- The `_request_cover_bytes` method validates URL scheme and hostname before making the HTTP request, and reads at most `MAX_COVER_BYTES + 1` bytes to enforce the size limit.
+- The `preload_covers_for_playlist` method uses `itertools.islice` to bound the number of preloaded covers and a set comprehension to deduplicate URLs.
+- The `_post_to_gui` method uses `QTimer.singleShot(0, ...)` to post callbacks to the Qt event loop, ensuring thread safety.
+- The `_is_gui_thread` method compares `QThread.currentThread()` with the info tab's thread to determine if GUI resources can be accessed safely.
+- The `_reserve_url`/`_release_url` methods use a `threading.Lock` to coordinate URL reservations and prevent duplicate foreground downloads.
+- The `COVER_URL_ERRORS` tuple is defined at module level for reuse and consistency, similar to `SESSION_ERRORS` in other GUI modules.
+
+---
+
+## File: tidal_dl_ng/gui/dialog_playlist_manager.py
+
+**File Path:** `tidal_dl_ng/gui/dialog_playlist_manager.py`
+
+**Purpose:** Responsive modal dialog for managing a track's playlist memberships — adding/removing tracks from playlists via the TIDAL API without blocking the Qt GUI thread.
+
+**Description:** This module defines `PlaylistManagerDialog`, a `QDialog` subclass that uses Qt's model/view architecture (custom `QAbstractListModel` + `QSortFilterProxyModel`) instead of creating one widget hierarchy per playlist. API mutations run on `QThreadPool` workers via the `Worker` class and return immutable `PlaylistTransactionResult` dataclass instances through a Qt signal (`transaction_finished`), keeping all model and widget updates on the GUI thread. The dialog provides real-time search filtering, pending state visualization (italic font, progress bar), error display, and automatic result acceptance/cancellation on close. It integrates with `ThreadSafePlaylistCache` for thread-safe cache updates and `playlist_api.py` for centralized TIDAL API calls.
+
+**Functions and Classes:**
+
+- `SPACING_SMALL` (`int`): Small spacing constant (6px).
+- `SPACING_MEDIUM` (`int`): Medium spacing constant (12px).
+- `SPACING_LARGE` (`int`): Large spacing constant (24px).
+- `TITLE_POINT_SIZE` (`int`): Title font point size (20).
+- `MINIMUM_DIALOG_WIDTH` (`int`): Minimum dialog width (520px).
+- `MINIMUM_DIALOG_HEIGHT` (`int`): Minimum dialog height (420px).
+- `DEFAULT_DIALOG_WIDTH` (`int`): Default dialog width (640px).
+- `DEFAULT_DIALOG_HEIGHT` (`int`): Default dialog height (600px).
+- `PLAYLIST_OPERATION_ERRORS` (`tuple[type[Exception], ...]`): Exceptions caught during playlist API operations (`AttributeError`, `OSError`, `RuntimeError`, `TidalAPIError`, `TypeError`, `ValueError`).
+- `ModelIndex` (`type`): Union of `QtCore.QModelIndex` and `QtCore.QPersistentModelIndex`.
+- `ROOT_MODEL_INDEX` (`QtCore.QModelIndex`): Default root model index for `rowCount`.
+- `PlaylistAction` (`StrEnum`): Supported playlist membership mutations (`ADD`, `REMOVE`).
+- `PlaylistMembership` (`dataclass`): Mutable presentation state for one playlist row (`playlist_id`, `name`, `item_count`, `checked`, `pending`, `error_message`).
+- `_playlist_name_sort_key(membership)` (`Callable`): Returns a case-insensitive sort key for a playlist membership.
+- `PlaylistTransaction` (`dataclass`, frozen, slots): Immutable request executed by a worker thread (`playlist_id`, `track_id`, `action`).
+- `PlaylistTransactionResult` (`dataclass`, frozen, slots): Immutable worker result delivered to the GUI thread (`request`, `success`, `message`).
+- `PlaylistDialogWidgets` (`dataclass`, frozen, slots): Widget references created by the dialog's UI builder.
+- `PlaylistMembershipModel` (`QtCore.QAbstractListModel`): Checkable list model representing playlist membership state.
+  - `__init__(memberships, parent)`: Initializes the model with sorted membership records.
+  - `rowCount(parent)`: Returns the number of top-level playlist rows.
+  - `data(index, role)`: Returns display, check, accessibility, and status data.
+  - `flags(index)`: Returns interactive flags for a playlist row.
+  - `setData(index, value, role)`: Applies a user-requested check-state change.
+  - `finish_transaction(playlist_id, checked, error_message)`: Applies a completed transaction to one model row.
+  - `playlist_name(playlist_id)`: Returns a playlist display name by identifier.
+  - `_membership_at(index)`: Returns a row record for a valid model index.
+  - `_display_text(membership)` (static): Builds concise primary text for a playlist row.
+  - `_tooltip_text(membership)` (static): Builds tooltip text describing a playlist row's state.
+  - `_emit_row_changed(row)`: Notifies views that all presentation roles changed for a row.
+- `PlaylistFilterProxyModel` (`QtCore.QSortFilterProxyModel`): Case-insensitive filter and sorter for playlist rows.
+- `PlaylistManagerDialog` (`QtWidgets.QDialog`): Manage one track's playlist memberships without blocking Qt.
+  - `__init__(track, cache, session, threadpool, parent)`: Initializes the playlist manager dialog.
+  - `_build_memberships()`: Creates sorted model records from the membership cache.
+  - `_build_ui(track_title)`: Builds the dialog exclusively with responsive Qt layouts.
+  - `_create_root_layout()`: Configures dialog geometry and returns its root layout.
+  - `_build_header(root_layout, track_title)`: Builds and attaches the title and track-name panel.
+  - `_build_content(root_layout)`: Builds and attaches the searchable model/view content panel.
+  - `_build_footer(root_layout)`: Builds and attaches progress, status, and close controls.
+  - `_connect_signals()`: Connects model, filter, and worker-result signals.
+  - `_apply_filter(text)`: Applies escaped user text to the playlist proxy model.
+  - `_update_empty_state()`: Shows a clear empty or no-results state when appropriate.
+  - `_queue_transaction(playlist_id, checked)`: Creates and queues a playlist mutation worker.
+  - `_execute_transaction(request)`: Executes one API mutation and updates the thread-safe cache.
+  - `_api_add_track_to_playlist(track_id, playlist_id)`: Executes an add transaction in the current worker thread.
+  - `_api_remove_track_from_playlist(track_id, playlist_id)`: Executes a remove transaction in the current worker thread.
+  - `_operation_error_message(action)` (static): Builds a concise user-facing operation error.
+  - `_on_transaction_finished(value)`: Applies one worker result on the GUI thread.
+  - `_emit_membership_change(request)`: Emits the public signal corresponding to a successful mutation.
+  - `_update_busy_state()`: Synchronizes progress visibility with pending worker count.
+  - `_show_error_notification(message)`: Displays a non-blocking error state in the dialog footer.
+  - `_show_status(message, is_error)`: Shows accessible success or error feedback without a modal popup.
+  - `_cancel_pending_tasks()`: Cancels queued workers and ignores results from running workers.
+  - `done(result)`: Finishes the dialog and detaches pending asynchronous results.
+  - `closeEvent(event)`: Handles window-manager close requests safely.
+
+**Dependencies:** `dataclasses.dataclass`, `enum.StrEnum`, `typing.TYPE_CHECKING`, `typing.override`, `PySide6.QtCore`, `PySide6.QtGui`, `PySide6.QtWidgets`, `tidalapi.exceptions.TidalAPIError`, `tidal_dl_ng.helper.playlist_api.add_track_to_playlist`, `tidal_dl_ng.helper.playlist_api.remove_track_from_playlist`, `tidal_dl_ng.logger.logger_gui`, `tidal_dl_ng.worker.Worker`, `tidalapi.media.Track` (TYPE_CHECKING), `tidalapi.session.Session` (TYPE_CHECKING), `tidal_dl_ng.gui.playlist_membership.ThreadSafePlaylistCache` (TYPE_CHECKING).
+
+**Relationships:**
+- Composed into `MainWindow` via `tidal_dl_ng/gui/playlist_membership_mixin.py` (line 14: imports `PlaylistManagerDialog`, line 331: creates dialog instance).
+- Re-exported through `tidal_dl_ng/ui/__init__.py` (lines 18-37: bridges `Ui_DialogPlaylistManager` with `PlaylistManagerDialog` implementation).
+- Uses `ThreadSafePlaylistCache` from `tidal_dl_ng.gui.playlist_membership` for thread-safe playlist cache updates.
+- Uses `Worker` from `tidal_dl_ng.worker` for thread pool task execution.
+- Uses `add_track_to_playlist` and `remove_track_from_playlist` from `tidal_dl_ng.helper.playlist_api` for centralized TIDAL API calls.
+- Uses `logger_gui` from `tidal_dl_ng.logger` for logging.
+- Uses `TidalAPIError` from `tidalapi.exceptions` for API error handling.
+- Referenced by `tests/test_playlist_manager.py` (line 23: imports `PlaylistManagerDialog`, extensive test coverage).
+- Referenced by `scripts/verify_playlist_integration.py` (line 46: integration verification).
+
+**Inputs and Outputs:**
+- **Inputs:** `Track` (TIDAL media object with `id` and `name`), `ThreadSafePlaylistCache` (preloaded membership cache), `Session` (authenticated TIDAL session), `QtCore.QThreadPool` (for API mutation workers), `QtWidgets.QWidget` (owning window), `str` (filter text from search editor).
+- **Outputs:** `PlaylistTransactionResult` (immutable worker results delivered via `transaction_finished` signal), `playlist_added`/`playlist_removed` signals (public membership change events), `QtCore.SignalInstance` (spinner start/stop, status updates), `None` (async operations emit results to the GUI thread).
+
+**Goals:**
+1. Provide a responsive modal dialog for managing a track's playlist memberships without blocking the Qt GUI thread.
+2. Use Qt's model/view architecture (custom `QAbstractListModel` + `QSortFilterProxyModel`) instead of creating one widget hierarchy per playlist.
+3. Run API mutations on `QThreadPool` workers and return immutable transaction results through Qt signals, keeping all model and widget updates on the GUI thread.
+4. Implement real-time search filtering with escaped regular expressions for safe user input.
+5. Visualize pending state (italic font, progress bar) and display errors without modal popups.
+6. Coordinate pending worker lifecycle with automatic result acceptance/cancellation on dialog close.
+7. Integrate with `ThreadSafePlaylistCache` for thread-safe cache updates and `playlist_api.py` for centralized TIDAL API calls.
+
+**Notes:**
+- The `PLAYLIST_OPERATION_ERRORS` tuple (`AttributeError`, `OSError`, `RuntimeError`, `TidalAPIError`, `TypeError`, `ValueError`) is similar to but distinct from `SESSION_ERRORS` in `context_menus.py`/`activate.py` and `COVER_URL_ERRORS` in `covers.py` — it catches errors specific to playlist API operations.
+- The `PlaylistAction` enum uses `StrEnum` (Python 3.11+) for string-valued enum members, enabling direct string comparison.
+- The `PlaylistTransaction` and `PlaylistTransactionResult` dataclasses use `frozen=True` and `slots=True` for immutability and memory efficiency.
+- The `PlaylistMembership` dataclass uses `slots=True` for memory efficiency.
+- The `ModelIndex` type alias uses PEP 695 syntax (`type ModelIndex = ...`) for Python 3.14 compatibility.
+- The `data` method uses structural pattern matching (`match`/`case`) with guard clauses for clean role-based data dispatch.
+- The `_apply_filter` method uses `QRegularExpression.escape()` to safely handle user input in the filter.
+- The `_cancel_pending_tasks` method uses `threadpool.tryTake()` to cancel queued workers and sets `_accept_results = False` to ignore results from running workers.
+- The `done` and `closeEvent` overrides both call `_cancel_pending_tasks` to ensure clean shutdown.
+- The `_api_add_track_to_playlist` and `_api_remove_track_from_playlist` methods are public API wrappers around `_execute_transaction`, providing a clean interface for external callers.
+- The `_show_status` method uses `style().unpolish()`/`style().polish()` to trigger style updates when the status property changes.
 
 ---
 
@@ -509,7 +1006,7 @@ This documentation should be kept synchronized with the source code to ensure it
   - `contributor = "CONTRIBUTOR"`: Contributor artist role.
   - `artist = "ARTIST"`: Artist role.
 
-**Dependencies:** `datetime.datetime`, `enum.Enum`, `typing.NoReturn`, `tidalapi.album.Album`, `tidalapi.media.Track`, `tidalapi.media.Video`, `tidalapi.mix.Mix`, `tidalapi.page.Page`, `tidalapi.session.Session`.
+**Dependencies:** `datetime.datetime`, `enum.Enum`, `typing.NoReturn`, `tidalapi.album.Album`, `tidalapi.media.Track`, `tidalapi.media.Video`, `tidalapi.mix.Mix`, `tidalapi.playlist.Playlist`, `tidalapi.playlist.UserPlaylist`, `tidalapi.request.Requests`, `tidalapi.session.Session`.
 
 **Relationships:** Consumed by `tidal_dl_ng/download.py`, `tidal_dl_ng/metadata.py`, and other modules that interact with TIDAL artist data. The `Artist` class is instantiated by the `tidalapi` session and returned from API calls. `Album` and `Artist` have a circular dependency (Album imports Artist, Artist imports Album) which is handled via TYPE_CHECKING in the real source.
 

@@ -96,7 +96,7 @@ class HistoryMixin:
             album_name = album.name or None
             return "album", str(album.id), album_name
 
-        track_id = None if track.id is None else str(track.id)
+        track_id = str(track.id)
         track_name = track.name or None
         return "track", track_id, track_name
 
@@ -157,7 +157,7 @@ class HistoryMixin:
         Returns:
             None: The model is updated only after persistence succeeds.
         """
-        if track.id is None:
+        if not (track_id := track.id):
             logger_gui.warning(
                 "Cannot mark track as downloaded: track.id is missing.",
             )
@@ -167,12 +167,12 @@ class HistoryMixin:
             )
             return
 
-        track_id = str(track.id)
+        track_id_str = str(track_id)
         source_type, source_id, source_name = self._track_source_info(track)
 
         try:
             self.history_service.add_track_to_history(
-                track_id=track_id,
+                track_id=track_id_str,
                 source_type=source_type,
                 source_id=source_id,
                 source_name=source_name,
@@ -180,7 +180,7 @@ class HistoryMixin:
         except HISTORY_WRITE_ERRORS:
             logger_gui.exception(
                 "Failed to add track to history (track_id=%s).",
-                track_id,
+                track_id_str,
             )
             self._show_status(
                 "Failed to mark track as downloaded.",
@@ -191,7 +191,7 @@ class HistoryMixin:
         self._update_downloaded_column(index, is_downloaded=True)
         logger_gui.info(
             "Marked track as downloaded: %s",
-            track.name or track_id,
+            track.name or track_id_str,
         )
 
     def on_mark_track_as_not_downloaded(
