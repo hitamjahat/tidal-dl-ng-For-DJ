@@ -54,6 +54,7 @@ This documentation should be kept synchronized with the source code to ensure it
 **Dependencies:** `ctypes`, `importlib`, `logging`, `signal`, `sys`, `pathlib.Path`, `typing.TYPE_CHECKING`, `PySide6.QtCore/QtGui/QtWidgets`, `tidalapi.exceptions.TidalAPIError`, `tidal_dl_ng.__name_display__`, `tidal_dl_ng.__version__`, `tidal_dl_ng.logger.enable_debug_and_warnings`, `tidal_dl_ng.config.Tidal`, `tidal_dl_ng.gui.main_window.MainWindow`, `tidal_dl_ng.helper.path.resource_path`, `qdarktheme` (via `importlib.import_module`).
 
 **Relationships:**
+
 - Exported by `tidal_dl_ng/gui/__init__.py` as `gui_activate`.
 - Called by `tidal_dl_ng/cli.py` (when `--gui` flag is passed) and by the `tidal-dl-ng-gui` console script entry point.
 - Imports `MainWindow` from `tidal_dl_ng.gui.main_window`, which composes all GUI mixins.
@@ -63,10 +64,12 @@ This documentation should be kept synchronized with the source code to ensure it
 - Uses `__name_display__` and `__version__` from `tidal_dl_ng` (the package root) for application metadata.
 
 **Inputs and Outputs:**
+
 - **Inputs:** Optional `Tidal` session object (from CLI injection); `sys.argv` (for `--debug`/`-d` flags); `sys.platform` (for Windows AppUserModelID); Qt Designer UI resources (icon PNG files).
 - **Outputs:** Runs the Qt event loop until exit; raises `SystemExit` with the Qt exit code; logs startup/shutdown messages.
 
 **Goals:**
+
 1. Centralize all process-level Qt bootstrap configuration in one module to keep `main_window.py` focused on screen layout and application logic.
 2. Ensure consistent high-DPI, theming, and desktop integration across source and frozen builds.
 3. Provide robust session recovery so injected CLI sessions are validated before GUI startup.
@@ -74,6 +77,7 @@ This documentation should be kept synchronized with the source code to ensure it
 5. Keep the module importable without side effects (configuration only runs when `gui_activate()` is called).
 
 **Notes:**
+
 - The `qdarktheme` module is imported via `importlib.import_module` at module level to avoid a hard import-time dependency; this allows the module to be imported even if `qdarktheme` is not yet installed (though `gui_activate()` will fail without it).
 - `_resolve_resource_path` uses `importlib.import_module` to access `resource_path` to avoid potential circular imports during early bootstrap; however, since `activate.py` is only loaded at GUI startup (after all other modules are initialized), a direct import from `tidal_dl_ng.helper.path` is safe and preferred for DRY compliance.
 - The `_allow_python_signal_dispatch` inner function in `_setup_signal_handlers` is currently a no-op (empty body) — it exists solely so the `QTimer` callback has a callable to connect to; Python's signal handling is triggered implicitly by the timer firing and returning control to the Python interpreter.
@@ -147,7 +151,7 @@ This documentation should be kept synchronized with the source code to ensure it
 
 ---
 
-## File: stubs/mpegdash/__init__.pyi
+## File: stubs/mpegdash/**init**.pyi
 
 **File Path:** `stubs/mpegdash/__init__.pyi`
 
@@ -354,6 +358,7 @@ This documentation should be kept synchronized with the source code to ensure it
 **Relationships:** Extends `ID3FileType` from `stubs/mutagen/id3/__init__.pyi`. Used by `tidal_dl_ng/metadata.py` (`from mutagen import flac, id3, mp3, mp4`) — `mp3.MP3` is part of the `_AudioFile` union type, used in `isinstance` checks, `match` statements (`case mp3.MP3()`), and `set_mp3()` / `_cleanup_mp3()` methods for writing ID3 tags to MP3 files.
 
 **Inputs and Outputs:**
+
 - **Inputs:** File paths/objects for `save`/`delete` (`object`); extra save options (`**kwargs: object`).
 - **Outputs:** Pretty-printed info (`str` from `pprint`).
 
@@ -361,7 +366,7 @@ This documentation should be kept synchronized with the source code to ensure it
 
 **Notes:** This is a stub file (`.pyi`), not executable source. The real `MP3` class does not override `tags`, `add_tags`, or `load` from `ID3FileType` — those are inherited, so the stub does not redeclare them (redeclaring with different signatures would trigger W0237/W0221). The stub declares only `save`, `delete`, and `pprint` — the three methods the project calls directly on `MP3` instances. The project explicitly forbids `Any` (per `AGENTS.md`), so `object` is used for `filething`/`**kwargs` parameters.
 
-## File: stubs/mutagen/mp4/__init__.pyi
+## File: stubs/mutagen/mp4/**init**.pyi
 
 **File Path:** `stubs/mutagen/mp4/__init__.pyi`
 
@@ -397,6 +402,7 @@ This documentation should be kept synchronized with the source code to ensure it
 **Relationships:** Extends `FileType` from `stubs/mutagen/__init__.pyi`. Used by `tidal_dl_ng/metadata.py` (`from mutagen import flac, id3, mp3, mp4`) — `mp4.MP4` is part of the `_AudioFile` union type, used in `isinstance` checks, `match` statements (`case mp4.MP4()`), and `set_mp4()` / `_cleanup_mp4()` methods for writing MP4 atom tags to M4A files.
 
 **Inputs and Outputs:**
+
 - **Inputs:** File paths/objects for `save` (`str | Path | None`); extra save options (`**kwargs: object`); tag keys (`str`); tag values (`MP4TagsValueType`); cover art data (`bytes`); free-form tag data (`bytes`).
 - **Outputs:** Tag containers (`MP4Tags | None` from `tags`); tag values (`MP4TagsValueType` from `__getitem__`); key lists (`list[str]` from `keys`); key-value pairs (`list[tuple[str, MP4TagsValueType]]` from `items`); booleans (`bool` from `__contains__`).
 
@@ -436,6 +442,7 @@ This documentation should be kept synchronized with the source code to ensure it
 **Relationships:** Consumed by `tidal_dl_ng/gui/updates.py` which instantiates `Ui_DialogVersion()` and calls `setupUi(dialog)` to build the version/update dialog. The dialog is used for checking and displaying application updates.
 
 **Inputs and Outputs:**
+
 - **Inputs:** `QDialog` instance passed to `setupUi` and `retranslateUi`.
 
 ---
@@ -481,6 +488,7 @@ This documentation should be kept synchronized with the source code to ensure it
 **Dependencies:** `time`, `urllib.parse`, `functools.partial`, `typing.TYPE_CHECKING`, `typing.cast`, `PySide6.QtCore`, `PySide6.QtGui`, `PySide6.QtWidgets`, `tidalapi.album.Album`, `tidalapi.artist.Artist`, `tidalapi.exceptions.TidalAPIError`, `tidalapi.media.Track`, `tidalapi.media.Video`, `tidalapi.mix.Mix`, `tidalapi.playlist.Playlist`, `tidalapi.playlist.UserPlaylist`, `tidal_dl_ng.constants.QueueDownloadStatus`, `tidal_dl_ng.helper.tidal` (as `tidal_helper`), `tidal_dl_ng.helper.gui.MediaItem`, `tidal_dl_ng.helper.gui.get_results_media_item`, `tidal_dl_ng.helper.gui.get_user_list_media_item`, `tidal_dl_ng.helper.tidal.name_builder_artist`, `tidal_dl_ng.logger.logger_gui`, `tidal_dl_ng.model.gui_data.QueueDownloadItem`, `tidal_dl_ng.model.gui_data.StatusbarMessage`.
 
 **Relationships:**
+
 - Composed into `MainWindow` via `tidal_dl_ng/gui/main_window.py` (line 93: `ContextMenusMixin` in the class bases).
 - Shares `SESSION_ERRORS` with `tidal_dl_ng/gui/downloads.py` (which defines a slightly different tuple including `RuntimeError`) and `tidal_dl_ng/gui/activate.py` (as `SESSION_RECOVERY_ERRORS`).
 - Uses `get_results_media_item` and `get_user_list_media_item` from `tidal_dl_ng.helper.gui` to resolve media items from tree views.
@@ -493,10 +501,12 @@ This documentation should be kept synchronized with the source code to ensure it
 - Uses `StatusbarMessage` from `tidal_dl_ng.model.gui_data` to emit status-bar messages.
 
 **Inputs and Outputs:**
+
 - **Inputs:** `QtCore.QPoint` (context menu position), `QtWidgets.QTreeWidgetItem` (queue item), `str` (search term, search type, album ID), `dict[str, Album]` (loaded albums), `list[object]` (media items from TIDAL), `Exception` (album load error).
 - **Outputs:** Context menus (shown synchronously), status-bar messages (emitted via `s_statusbar_message`), queue items (enqueued via `QTimer.singleShot`), browser URLs (opened via `QDesktopServices.openUrl`).
 
 **Goals:**
+
 1. Centralize all context-menu coordination logic in a single mixin to keep `MainWindow` focused on screen layout and application state.
 2. Ensure expensive operations (album loading, playlist fetching) are delegated to the worker thread via `thread_it` or `QTimer.singleShot`.
 3. Provide robust session validation and recovery before API calls.
@@ -504,6 +514,7 @@ This documentation should be kept synchronized with the source code to ensure it
 5. Keep the mixin importable without side effects (no module-level code execution).
 
 **Notes:**
+
 - `SESSION_ERRORS` is duplicated across `context_menus.py`, `downloads.py`, and `activate.py` (as `SESSION_RECOVERY_ERRORS`). The `downloads.py` version includes `RuntimeError` which the other two omit — this is a potential inconsistency that should be resolved by centralizing the tuple in a shared location (e.g., `tidal_dl_ng/constants.py`).
 - The `_ensure_session_valid` method in `context_menus.py` differs slightly from `_ensure_tidal_session` in `downloads.py` — the former uses `self.tidal` (instance attribute) while the latter takes `tidal` as a parameter. Both share the same logic pattern.
 - The `_is_authentication_error` method uses string matching on error messages to detect auth failures — this is a heuristic that could be replaced with proper exception type checking if the TIDAL API provides specific exception types for authentication errors.
@@ -552,6 +563,7 @@ This documentation should be kept synchronized with the source code to ensure it
 **Dependencies:** `typing.TYPE_CHECKING`, `typing.TypeGuard`, `PySide6.QtCore`, `PySide6.QtGui`, `PySide6.QtWidgets`, `tidalapi.album.Album`, `tidalapi.artist.Artist`, `tidalapi.exceptions.TidalAPIError`, `tidalapi.media.Quality`, `tidalapi.media.Track`, `tidalapi.media.Video`, `tidalapi.mix.Mix`, `tidalapi.playlist.Playlist`, `tidalapi.playlist.UserPlaylist`, `tidal_dl_ng.config.HandlingApp`, `tidal_dl_ng.config.Settings`, `tidal_dl_ng.config.Tidal`, `tidal_dl_ng.constants.QualityVideo`, `tidal_dl_ng.constants.QueueDownloadStatus`, `tidal_dl_ng.download.Download`, `tidal_dl_ng.helper.gui.get_results_media_item`, `tidal_dl_ng.helper.gui.HumanProxyModel`, `tidal_dl_ng.helper.path.get_format_template`, `tidal_dl_ng.helper.tidal.items_results_all`, `tidal_dl_ng.logger.logger_gui`, `tidal_dl_ng.model.downloader.ItemRequest`, `tidal_dl_ng.model.gui_data.QueueDownloadItem`, `tidal_dl_ng.model.gui_data.StatusbarMessage`, `tidal_dl_ng.gui.queue.GuiQueueManager`.
 
 **Relationships:**
+
 - Composed into `MainWindow` via `tidal_dl_ng/gui/main_window.py` (line 21: imports `DownloadsMixin`).
 - Shares `SESSION_ERRORS` with `tidal_dl_ng/gui/context_menus.py` (which omits `RuntimeError`) and `tidal_dl_ng/gui/activate.py` (as `SESSION_RECOVERY_ERRORS`, which also omits `RuntimeError`).
 - Uses `get_results_media_item` from `tidal_dl_ng.helper.gui` to resolve media items from tree views.
@@ -565,10 +577,12 @@ This documentation should be kept synchronized with the source code to ensure it
 - Uses `QueueDownloadStatus` from `tidal_dl_ng.constants` for download result enumeration.
 
 **Inputs and Outputs:**
+
 - **Inputs:** `QtCore.QModelIndex` (selected result rows), `QueueDownloadItem` (prepared queue entry), `QueueableMedia` (media or artist queued for download), `DownloadableMedia` (item or collection to download), `Quality | None` (audio quality), `QualityVideo | None` (video quality), `bool` (track delay flag), `Download` (configured downloader service).
 - **Outputs:** `QueueDownloadStatus` (Finished, Skipped, or Failed), `StatusbarMessage` (emitted via `s_statusbar_message`), `None` (queue operations and widget updates).
 
 **Goals:**
+
 1. Centralize all download orchestration and queue integration logic in a single mixin to keep `MainWindow` focused on screen layout and application state.
 2. Provide type-safe filtering of TIDAL media objects using `TypeGuard` functions for downloadability and queueability.
 3. Ensure session validation and recovery before API calls, with graceful fallback to interactive login.
@@ -578,6 +592,7 @@ This documentation should be kept synchronized with the source code to ensure it
 7. Keep the mixin importable without side effects (no module-level code execution).
 
 **Notes:**
+
 - `SESSION_ERRORS` is duplicated across `context_menus.py`, `downloads.py`, and `activate.py` (as `SESSION_RECOVERY_ERRORS`). The `downloads.py` version includes `RuntimeError` which the other two omit — this is a potential inconsistency that should be resolved by centralizing the tuple in a shared location (e.g., `tidal_dl_ng/constants.py`).
 - The `_ensure_tidal_session` method in `downloads.py` differs slightly from `_ensure_session_valid` in `context_menus.py` — the former takes `tidal` as a parameter while the latter uses `self.tidal` (instance attribute). Both share the same logic pattern.
 - `DOWNLOAD_ERRORS` is an alias for `SESSION_ERRORS`, used in the `download` method's exception handler to catch the same set of errors during download execution.
@@ -623,6 +638,7 @@ This documentation should be kept synchronized with the source code to ensure it
 **Dependencies:** `typing.TYPE_CHECKING`, `typing.cast`, `PySide6.QtCore`, `PySide6.QtGui`, `PySide6.QtWidgets`, `tidal_dl_ng.dialog.DialogPreferences`, `tidal_dl_ng.dialog_history.DialogHistory`, `tidal_dl_ng.logger.logger_gui`, `tidal_dl_ng.model.gui_data.StatusbarMessage`, `tidalapi.media.Track` (TYPE_CHECKING), `tidal_dl_ng.config.Settings` (TYPE_CHECKING), `tidal_dl_ng.helper.gui.HumanProxyModel` (TYPE_CHECKING), `tidal_dl_ng.history.HistoryService` (TYPE_CHECKING).
 
 **Relationships:**
+
 - Composed into `MainWindow` via `tidal_dl_ng/gui/main_window.py` (line 22: imports `HistoryMixin`).
 - Uses `HistoryService` from `tidal_dl_ng.history` for persistent download history operations.
 - Uses `DialogHistory` from `tidal_dl_ng.dialog_history` to display the download history dialog.
@@ -634,10 +650,12 @@ This documentation should be kept synchronized with the source code to ensure it
 - `HISTORY_WRITE_ERRORS` is similar to but distinct from `SESSION_ERRORS` in `downloads.py`/`context_menus.py` and `COVER_URL_ERRORS` in `covers.py` — it catches errors specific to history write operations.
 
 **Inputs and Outputs:**
+
 - **Inputs:** `Track` (TIDAL track object), `QModelIndex` (proxy-model index for track row), `str` (track ID, status message), `bool` (duplicate prevention enabled, downloaded state), `int` (status timeout in milliseconds), `Settings` (application settings).
 - **Outputs:** `StatusbarMessage` (emitted via `s_statusbar_message`), `None` (dialog operations, model updates, settings persistence).
 
 **Goals:**
+
 1. Centralize all download-history GUI coordination in a single mixin to keep `MainWindow` focused on screen layout and application state.
 2. Bridge the persistent history service with the GUI layer using structural typing (`Protocol`) for Qt signal access.
 3. Provide user feedback through status-bar messages for all history operations (success and failure).
@@ -646,6 +664,7 @@ This documentation should be kept synchronized with the source code to ensure it
 6. Delegate concrete settings application and download service initialization to the host `MainWindow`.
 
 **Notes:**
+
 - `HISTORY_WRITE_ERRORS` (`OSError`, `TypeError`, `ValueError`) is similar to but distinct from `SESSION_ERRORS` in `downloads.py`/`context_menus.py` and `COVER_URL_ERRORS` in `covers.py` — it catches errors specific to history write operations (file I/O, type mismatches, invalid values).
 - The `_HistorySignalOwner` Protocol uses `@property` with `raise NotImplementedError` to provide type information without runtime implementation — the concrete `MainWindow` supplies the actual signal instances.
 - The `_signal_owner` method uses `cast("_HistorySignalOwner", self)` to provide structural typing, since the mixin is composed into `MainWindow` which provides the required signals.
@@ -687,6 +706,7 @@ This documentation should be kept synchronized with the source code to ensure it
 **Relationships:** Consumed by `tidal_dl_ng/gui/updates.py` which instantiates `Ui_DialogVersion()` and calls `setupUi(dialog)` to build the version/update dialog. The dialog is used for checking and displaying application updates.
 
 **Inputs and Outputs:**
+
 - **Inputs:** `QDialog` instance passed to `setupUi` and `retranslateUi`.
 
 ---
@@ -738,6 +758,7 @@ This documentation should be kept synchronized with the source code to ensure it
 **Dependencies:** `time`, `functools.partial`, `http.client.HTTPException`, `itertools.islice`, `pathlib.Path`, `threading.Lock`, `typing.TYPE_CHECKING`, `typing.cast`, `urllib.parse.urljoin`, `urllib.parse.urlsplit`, `requests`, `PySide6.QtCore`, `PySide6.QtGui`, `tidalapi.album.Album`, `tidal_dl_ng.cache.CoverPixmapCache`, `tidal_dl_ng.constants.REQUESTS_TIMEOUT_SEC`, `tidal_dl_ng.helper.path.resource_path`, `tidal_dl_ng.logger.logger_gui`, `tidal_dl_ng.worker.Worker`.
 
 **Relationships:**
+
 - Composed into `MainWindow` via `tidal_dl_ng/gui/main_window.py` (line 115: `cover_manager: CoverManager`, line 235: `self.cover_manager = CoverManager(...)`).
 - Referenced by `tidal_dl_ng/gui/signals.py` (line 94: `cover_manager: CoverManager` in `MainWindowSignals`).
 - Referenced by `tidal_dl_ng/gui/track_extras.py` (line 41: `cover_manager: CoverManager`).
@@ -750,10 +771,12 @@ This documentation should be kept synchronized with the source code to ensure it
 - Uses `Album` from `tidalapi.album` to type-check media objects with album covers.
 
 **Inputs and Outputs:**
+
 - **Inputs:** `object` (TIDAL media objects with `album` or `image` attributes), `QtCore.QThreadPool` (for worker execution), `InfoTabWidget` (for display updates), `str` (cover URLs), `bytes` (downloaded image data), `Iterable[object]` (playlist items for preloading).
 - **Outputs:** `QtGui.QPixmap` (displayed covers, cached or returned), `QtCore.SignalInstance` (spinner start/stop signals), `None` (async operations post callbacks to the GUI thread).
 
 **Goals:**
+
 1. Centralize all cover image loading, caching, and display logic in a single manager to keep `MainWindow` focused on screen layout and application state.
 2. Ensure `QPixmap` creation and widget updates are confined to the Qt GUI thread, while network downloads run on worker threads.
 3. Prevent stale cover downloads from overwriting more recently selected covers (newest-request-wins semantics).
@@ -762,6 +785,7 @@ This documentation should be kept synchronized with the source code to ensure it
 6. Coordinate spinner visibility for user feedback during cover loading.
 
 **Notes:**
+
 - The `COVER_URL_ERRORS` tuple (`AttributeError`, `IndexError`, `TypeError`, `ValueError`) is similar to but distinct from `SESSION_ERRORS` in `context_menus.py` and `activate.py` — it catches errors specific to URL extraction from media objects.
 - The `_get_cover_url` method handles both `Album` objects (via `album.image()`) and generic media objects (via `media.image()` callable), providing flexibility for different TIDAL media types.
 - The `_normalize_url` method uses the walrus operator (`:=`) for concise URL stripping and validation.
@@ -843,6 +867,7 @@ This documentation should be kept synchronized with the source code to ensure it
 **Dependencies:** `dataclasses.dataclass`, `enum.StrEnum`, `typing.TYPE_CHECKING`, `typing.override`, `PySide6.QtCore`, `PySide6.QtGui`, `PySide6.QtWidgets`, `tidalapi.exceptions.TidalAPIError`, `tidal_dl_ng.helper.playlist_api.add_track_to_playlist`, `tidal_dl_ng.helper.playlist_api.remove_track_from_playlist`, `tidal_dl_ng.logger.logger_gui`, `tidal_dl_ng.worker.Worker`, `tidalapi.media.Track` (TYPE_CHECKING), `tidalapi.session.Session` (TYPE_CHECKING), `tidal_dl_ng.gui.playlist_membership.ThreadSafePlaylistCache` (TYPE_CHECKING).
 
 **Relationships:**
+
 - Composed into `MainWindow` via `tidal_dl_ng/gui/playlist_membership_mixin.py` (line 14: imports `PlaylistManagerDialog`, line 331: creates dialog instance).
 - Re-exported through `tidal_dl_ng/ui/__init__.py` (lines 18-37: bridges `Ui_DialogPlaylistManager` with `PlaylistManagerDialog` implementation).
 - Uses `ThreadSafePlaylistCache` from `tidal_dl_ng.gui.playlist_membership` for thread-safe playlist cache updates.
@@ -854,10 +879,12 @@ This documentation should be kept synchronized with the source code to ensure it
 - Referenced by `scripts/verify_playlist_integration.py` (line 46: integration verification).
 
 **Inputs and Outputs:**
+
 - **Inputs:** `Track` (TIDAL media object with `id` and `name`), `ThreadSafePlaylistCache` (preloaded membership cache), `Session` (authenticated TIDAL session), `QtCore.QThreadPool` (for API mutation workers), `QtWidgets.QWidget` (owning window), `str` (filter text from search editor).
 - **Outputs:** `PlaylistTransactionResult` (immutable worker results delivered via `transaction_finished` signal), `playlist_added`/`playlist_removed` signals (public membership change events), `QtCore.SignalInstance` (spinner start/stop, status updates), `None` (async operations emit results to the GUI thread).
 
 **Goals:**
+
 1. Provide a responsive modal dialog for managing a track's playlist memberships without blocking the Qt GUI thread.
 2. Use Qt's model/view architecture (custom `QAbstractListModel` + `QSortFilterProxyModel`) instead of creating one widget hierarchy per playlist.
 3. Run API mutations on `QThreadPool` workers and return immutable transaction results through Qt signals, keeping all model and widget updates on the GUI thread.
@@ -867,6 +894,7 @@ This documentation should be kept synchronized with the source code to ensure it
 7. Integrate with `ThreadSafePlaylistCache` for thread-safe cache updates and `playlist_api.py` for centralized TIDAL API calls.
 
 **Notes:**
+
 - The `PLAYLIST_OPERATION_ERRORS` tuple (`AttributeError`, `OSError`, `RuntimeError`, `TidalAPIError`, `TypeError`, `ValueError`) is similar to but distinct from `SESSION_ERRORS` in `context_menus.py`/`activate.py` and `COVER_URL_ERRORS` in `covers.py` — it catches errors specific to playlist API operations.
 - The `PlaylistAction` enum uses `StrEnum` (Python 3.11+) for string-valued enum members, enabling direct string comparison.
 - The `PlaylistTransaction` and `PlaylistTransactionResult` dataclasses use `frozen=True` and `slots=True` for immutability and memory efficiency.
@@ -928,6 +956,7 @@ This documentation should be kept synchronized with the source code to ensure it
 **Relationships:** Consumed by `tidal_dl_ng/cli.py`, `tidal_dl_ng/download.py`, `tidal_dl_ng/worker.py`, and `tidal_dl_ng/gui/` modules which instantiate `Settings`, `Tidal`, and `HandlingApp` singletons to manage configuration, API sessions, and application lifecycle.
 
 **Inputs and Outputs:**
+
 - **Inputs:** JSON config files on disk, user settings, TIDAL credentials.
 - **Outputs:** Loaded config objects, authenticated TIDAL session, control events.
 
@@ -964,6 +993,7 @@ This documentation should be kept synchronized with the source code to ensure it
 **Relationships:** Consumed by `tidal_dl_ng/download.py`, `tidal_dl_ng/metadata.py`, and other modules that interact with TIDAL album data. The `Album` class is instantiated by the `tidalapi` session and returned from API calls.
 
 **Inputs and Outputs:**
+
 - **Inputs:** TIDAL API responses (JSON), session configuration.
 - **Outputs:** Album metadata, track/video lists, image URLs, review text, audio resolution data.
 
@@ -1011,6 +1041,7 @@ This documentation should be kept synchronized with the source code to ensure it
 **Relationships:** Consumed by `tidal_dl_ng/download.py`, `tidal_dl_ng/metadata.py`, and other modules that interact with TIDAL artist data. The `Artist` class is instantiated by the `tidalapi` session and returned from API calls. `Album` and `Artist` have a circular dependency (Album imports Artist, Artist imports Album) which is handled via TYPE_CHECKING in the real source.
 
 **Inputs and Outputs:**
+
 - **Inputs:** TIDAL API responses (JSON), session configuration.
 - **Outputs:** Artist metadata, album/track/video lists, biography text, image URLs.
 
@@ -1026,7 +1057,7 @@ This documentation should be kept synchronized with the source code to ensure it
 
 **Purpose:** Type stub for the `tidalapi.page` module, providing static type information for TIDAL page-based content — the `Page` class (iterable page of mixed content categories), `PageCategory`/`PageCategoryV2` base classes, list-style category subclasses (`SimpleList`, `ShortcutList`, `HorizontalList`, `HorizontalListWithContext`, `TrackList`, `FeaturedItems`, `PageLinks`, `ItemList`, `LinkList`), and supporting types (`More`, `PageLink`, `PageItem`, `TextBlock`).
 
-**Description:** Declares the public interface of the `tidalapi.page` module. The `Page` class is iterable and lazily yields content (tracks, albums, artists, playlists, mixes, page items, links, text blocks) from TIDAL's page API. `PageCategory` and `PageCategoryV2` are base classes for different page category types, with `PageCategoryV2` using a registry pattern (`register_subclass` decorator and `_type_map`) to dispatch parsing of different category types (SHORTCUT_LIST, HORIZONTAL_LIST, TRACK_LIST, etc.). The stub also declares type aliases (`TidalItem`, `PageContent`, `PageCategories`, `AllCategories`, `PageCategoriesV2`, `AllCategoriesV2`) for the union types used throughout.
+**Description:** Declares the public interface of the `tidalapi.page` module. The `Page` class is iterable and lazily yields content (tracks, albums, artists, playlists, mixes, page items, links, text blocks) from TIDAL's page API. `PageCategory` and `PageCategoryV2` are base classes for different page category types, with `PageCategoryV2` using a registry pattern (`_type_map`, `register_subclass` decorator) to dispatch parsing of different category types (SHORTCUT_LIST, HORIZONTAL_LIST, TRACK_LIST, etc.). The stub also declares type aliases (`TidalItem`, `PageContent`, `PageCategories`, `AllCategories`, `PageCategoriesV2`, `AllCategoriesV2`) for the union types used throughout.
 
 **Functions and Classes:**
 
@@ -1053,6 +1084,7 @@ This documentation should be kept synchronized with the source code to ensure it
 **Relationships:** Consumed by `tidal_dl_ng/download.py`, `tidal_dl_ng/metadata.py`, `tidal_dl_ng/gui/` modules, and other code that interacts with TIDAL page-based content. The `Page` class is instantiated by the `tidalapi` session and returned from API calls. `PageCategoryV2` subclasses use the registry pattern (`register_subclass` decorator) to map TIDAL category type strings to Python classes.
 
 **Inputs and Outputs:**
+
 - **Inputs:** TIDAL API JSON responses (as `Mapping[str, object]`), session configuration.
 - **Outputs:** Parsed page content (tracks, albums, artists, playlists, mixes, page items, links, text blocks), `Page` objects, `PageCategoryV2` subclass instances.
 

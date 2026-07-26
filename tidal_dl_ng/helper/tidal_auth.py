@@ -20,7 +20,7 @@ from CLI (sync) and GUI (async) contexts.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import asyncio
 import contextlib
@@ -66,6 +66,18 @@ QueryParamTypes = (
 )
 
 
+class TokenResponse(TypedDict):
+    """A token response from the TIDAL API."""
+
+    access_token: str
+    refresh_token: str
+    token_type: str
+    expires_in: int
+    user: TokenEntry  # Contains userId
+    error: str | None
+    error_description: str | None
+
+
 class TokenEntry(TypedDict):
     """A normalized TIDAL OAuth credential entry.
 
@@ -94,6 +106,8 @@ class TokenEntry(TypedDict):
     token_type: str
     expires_in: int
     created_at: str
+    scope: str | None
+    version: str | None
 
 
 #: Default token file path, overridable via ``TOKEN_FILE`` env var.
@@ -279,11 +293,11 @@ def _log_response(method: str, url: str, resp: httpx.Response) -> None:
     )
 
 
-def _pick_credential() -> dict[str, object]:
+def _pick_credential() -> TokenEntry:
     """Pick a random credential from loaded tokens.
 
     Returns:
-        dict[str, object]: A credential dictionary.
+        TokenEntry: A credential dictionary.
 
     Raises:
         RuntimeError: If no credentials are available.
@@ -497,10 +511,10 @@ async def get_http_client() -> httpx.AsyncClient:
 
 
 def _build_cred_entry(
-    entry: dict[str, object],
+    entry: TokenEntry,
     default_client_id: str,
     default_client_secret: str,
-) -> dict[str, object]:
+) -> TokenEntry:
     """Normalize a raw token entry into the standard credential format.
 
     Args:
@@ -509,26 +523,28 @@ def _build_cred_entry(
         default_client_secret: Fallback client secret.
 
     Returns:
-        dict[str, object]: Normalized credential dictionary with both
+        TokenEntry: Normalized credential dictionary with both
             lowercase and original-case key variants.
     """
     client_id = str(entry.get("client_ID") or default_client_id)
     client_secret = str(entry.get("client_secret") or default_client_secret)
     user_id = str(entry.get("userID") or "")
-    return {
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "refresh_token": str(entry.get("refresh_token") or ""),
-        "user_id": user_id,
-        "access_token": entry.get("access_token"),
-        "expires_at": 0,
-        "client_ID": client_id,
-        "userID": user_id,
-        "token_type": str(entry.get("token_type", "Bearer")),
-    }
+    return TokenEntry(
+        client_id=client_id,
+        client_secret=client_secret,
+        refresh_token=str(entry.get("refresh_token") or ""),
+        user_id=user_id,
+        access_token=entry.get("access_token"),
+        expires_at=0,
+        client_ID=client_id,
+        userID=user_id,
+        token_type=str(entry.get("token_type", "Bearer")),
+        expires_in=0,
+        created_at="",
+    )
 
 
-def load_tokens() -> list[dict[str, object]]:
+def load_tokens() -> list[TokenEntry]:
     """Load all stored token entries from the token file.
 
     Supports both list and dict formats in token.json. Also loads
@@ -536,10 +552,10 @@ def load_tokens() -> list[dict[str, object]]:
     REFRESH_TOKEN, USER_ID) as a fallback, merged with file-based tokens.
 
     Returns:
-        list[dict[str, object]]: List of token entry dictionaries.
+        list[TokenEntry]: List of token entry dictionaries.
             Returns an empty list if no tokens are available.
     """
-    creds: list[dict[str, object]] = []
+    creds: list[TokenEntry] = []
 
     if TOKEN_FILE.exists():
         with TOKEN_FILE.open(encoding="utf-8") as f:
@@ -552,7 +568,7 @@ def load_tokens() -> list[dict[str, object]]:
                     if not isinstance(entry, dict):
                         continue
                     cred = _build_cred_entry(
-                        cast("dict[str, object]", entry),
+                        cast("TokenEntry", entry),
                         HIFI_REQUEST_CLIENT_ID,
                         HIFI_REQUEST_CLIENT_SECRET,
                     )
@@ -566,24 +582,24 @@ def load_tokens() -> list[dict[str, object]]:
     env_user_id = os.getenv("USER_ID")
 
     if env_refresh:
-        env_cred: dict[str, object] = {
-            "client_id": env_client_id,
-            "client_secret": env_client_secret,
-            "refresh_token": env_refresh,
-            "user_id": env_user_id or "",
-            "access_token": None,
-            "expires_at": 0,
-            "client_ID": env_client_id,
-            "userID": env_user_id or "",
-            "token_type": "Bearer",
-        }
+        env_cred = TokenEntry(
+            client_id=env_client_id,
+            client_secret=env_client_secret,
+            refresh_token=env_refresh,
+            user_id=env_user_id or "",
+            access_token=None,
+            expires_at=0,
+            client_ID=env_client_id,
+            userID=env_user_id or "",
+            token_type="Bearer",
+        )
         if not any(c["refresh_token"] == env_refresh for c in creds):
             creds.append(env_cred)
 
     return creds
 
 
-def save_token_entry(entry: dict[str, object]) -> None:
+def save_token_entry(entry: TokenEntry) -> None:
     """Persist a token entry, replacing duplicates.
 
     Replaces any existing entry with the same client_ID and
@@ -630,7 +646,7 @@ def delete_token_entry(client_id: str, refresh_token: str) -> None:
 
 def find_token_entry(
     client_id: str | None = None,
-) -> dict[str, object] | None:
+) -> TokenEntry | None:
     """Find a stored token entry, optionally matching a client_id.
 
     Args:
@@ -638,7 +654,7 @@ def find_token_entry(
             are considered. If None, the first entry is returned.
 
     Returns:
-        dict[str, object] | None: The matching token entry, or None.
+        TokenEntry | None: The matching token entry, or None.
     """
     tokens = load_tokens()
     if client_id is not None:
@@ -652,9 +668,9 @@ def find_token_entry(
 
 async def poll_for_authorization(
     url: str,
-    data: dict[str, object],
+    data: TokenEntry,
     auth: tuple[str, str],
-) -> dict[str, object]:
+) -> TokenEntry:
     """Poll the TIDAL token endpoint until authorization is complete.
 
     Args:
@@ -663,7 +679,7 @@ async def poll_for_authorization(
         auth: HTTP basic auth tuple of (client_id, client_secret).
 
     Returns:
-        dict[str, object]: The JSON response from the token endpoint
+        TokenEntry: The JSON response from the token endpoint
             containing access_token, refresh_token, etc.
     """
     headers = _auth_headers()
@@ -671,7 +687,7 @@ async def poll_for_authorization(
         while True:
             response = await client.post(url, data=data, auth=auth)
             if response.status_code == _HTTP_OK:
-                return cast("dict[str, object]", response.json())
+                return cast("TokenEntry", response.json())
             await asyncio.sleep(HIFI_POLL_INTERVAL_SEC)
 
 
@@ -679,7 +695,7 @@ async def refresh_access_token(
     refresh_token: str,
     client_id: str = HIFI_REQUEST_CLIENT_ID,
     client_secret: str = HIFI_REQUEST_CLIENT_SECRET,
-) -> dict[str, object]:
+) -> TokenEntry:
     """Refresh an OAuth access token using the refresh_token grant.
 
     Uses the shared HTTP client with proxy support and retry logic
@@ -691,7 +707,7 @@ async def refresh_access_token(
         client_secret: The client secret for the refresh request.
 
     Returns:
-        dict[str, object]: The JSON response containing the new
+        TokenEntry: The JSON response containing the new
             access_token and related fields.
 
     Raises:
@@ -716,7 +732,7 @@ async def refresh_access_token(
 
             if response.status_code in _INVALID_CREDENTIAL_STATUS_CODES:
                 try:
-                    error_data = cast("dict[str, object]", response.json())
+                    error_data = cast("TokenEntry", response.json())
                     error = error_data.get("error")
                     if error in ("invalid_client", "invalid_grant"):
                         error_desc = str(
@@ -734,7 +750,7 @@ async def refresh_access_token(
                     pass
 
             response.raise_for_status()
-            return cast("dict[str, object]", response.json())
+            return cast("TokenEntry", response.json())
         except httpx.RequestError:
             if USE_PROXIES and attempt < max_retries - 1:
                 await update_global_client(force_new_proxy=True)
@@ -757,7 +773,7 @@ async def verify_token(
     access_token: str,
     track_id: str = HIFI_VERIFICATION_TRACK_ID,
     quality: str = HIFI_VERIFICATION_QUALITY,
-) -> dict[str, object]:
+) -> TokenEntry:
     """Verify a token by requesting playback info for a known track.
 
     Uses the shared HTTP client for connection reuse.
@@ -768,7 +784,7 @@ async def verify_token(
         quality: The audio quality to request (e.g. "HI_RES").
 
     Returns:
-        dict[str, object]: The JSON response from the playbackinfopostpaywall
+        TokenEntry: The JSON response from the playbackinfopostpaywall
             endpoint, which includes audioQuality and stream info.
     """
     url = HIFI_PLAYBACK_INFO_URL_TEMPLATE.format(
@@ -778,14 +794,14 @@ async def verify_token(
     client = await get_http_client()
     response = await client.get(url, headers=headers)
     response.raise_for_status()
-    return cast("dict[str, object]", response.json())
+    return cast("TokenEntry", response.json())
 
 
 async def run_device_authorization_flow(
     fn_print: FnPrint,
     *,
     open_browser: bool = True,
-) -> dict[str, object] | None:
+) -> TokenEntry | None:
     """Execute the full OAuth 2.0 Device Authorization flow.
 
     This function:
@@ -800,7 +816,7 @@ async def run_device_authorization_flow(
         open_browser: Whether to automatically open the verification URL.
 
     Returns:
-        dict[str, object] | None: The saved token entry, or None if the
+        TokenEntry | None: The saved token entry, or None if the
             flow failed.
     """
     fn_print(f"Trying Client ID: {HIFI_AUTH_CLIENT_ID}")
@@ -818,10 +834,10 @@ async def run_device_authorization_flow(
         fn_print(f"Error {response.status_code} during device authorization.")
         return None
 
-    res = cast("dict[str, object]", response.json())
+    res = cast(TokenResponse, response.json())
     verify_url = str(res["verificationUriComplete"])
     device_code = str(res["deviceCode"])
-    expires_in = int(cast("int", res.get("expiresIn", 0)))
+    expires_in = int(res.get("expiresIn", 0))
 
     fn_print(f"Verification URL: {verify_url}")
     fn_print(f"Device code: {device_code}")
@@ -831,11 +847,15 @@ async def run_device_authorization_flow(
         webbrowser.open(verify_url)
 
     # Step 2: Poll for authorization
-    token_data: dict[str, object] = {
+    token_data: TokenResponse = {
         "client_id": HIFI_AUTH_CLIENT_ID,
         "scope": HIFI_OAUTH_SCOPE,
         "device_code": device_code,
         "grant_type": HIFI_OAUTH_GRANT_TYPE_DEVICE,
+        "expires_in": 0,
+        "user": None,
+        "error": None,
+        "error_description": None,
     }
     basic = (HIFI_AUTH_CLIENT_ID, HIFI_AUTH_CLIENT_SECRET)
 
@@ -846,18 +866,21 @@ async def run_device_authorization_flow(
 
     access_token = str(auth_response["access_token"])
     refresh_token = str(auth_response["refresh_token"])
-    user_id = str(cast("dict[str, object]", auth_response["user"])["userId"])
+    user_id = str(auth_response["user"]["userId"])
 
-    entry: dict[str, object] = {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "userID": user_id,
-        "client_ID": HIFI_REQUEST_CLIENT_ID,
-        "client_secret": HIFI_REQUEST_CLIENT_SECRET,
-        "token_type": str(auth_response.get("token_type", "Bearer")),
-        "expires_in": int(cast("int", auth_response.get("expires_in", 0))),
-        "created_at": datetime.now(UTC).isoformat(),
-    }
+    entry = TokenEntry(
+        client_id=HIFI_REQUEST_CLIENT_ID,
+        client_secret=HIFI_REQUEST_CLIENT_SECRET,
+        refresh_token=refresh_token,
+        user_id=user_id,
+        access_token=access_token,
+        expires_at=0,
+        client_ID=HIFI_REQUEST_CLIENT_ID,
+        userID=user_id,
+        token_type=str(auth_response.get("token_type", "Bearer")),
+        expires_in=int(auth_response.get("expires_in", 0)),
+        created_at=datetime.now(UTC).isoformat(),
+    )
 
     save_token_entry(entry)
     fn_print(f"Token saved for user ID: {user_id}")
@@ -884,7 +907,7 @@ def run_device_authorization_flow_sync(
     fn_print: FnPrint,
     *,
     open_browser: bool = True,
-) -> dict[str, object] | None:
+) -> TokenEntry | None:
     """Synchronous wrapper for :func:`run_device_authorization_flow`.
 
     Args:
@@ -892,7 +915,7 @@ def run_device_authorization_flow_sync(
         open_browser: Whether to automatically open the verification URL.
 
     Returns:
-        dict[str, object] | None: The saved token entry, or None if failed.
+        TokenEntry | None: The saved token entry, or None if failed.
     """
     return asyncio.run(
         run_device_authorization_flow(fn_print, open_browser=open_browser)
@@ -903,7 +926,7 @@ async def get_valid_token(
     client_id: str | None = None,
     *,
     force_refresh: bool = False,
-) -> tuple[str, dict[str, object]] | None:
+) -> tuple[str, TokenEntry] | None:
     """Retrieve a valid access token, refreshing if necessary.
 
     Args:
@@ -912,7 +935,7 @@ async def get_valid_token(
         force_refresh: If True, always refresh the token.
 
     Returns:
-        tuple[str, dict[str, object]] | None: A tuple of (access_token,
+        tuple[str, TokenEntry] | None: A tuple of (access_token,
             token_entry), or None if no valid token is available.
     """
     entry = find_token_entry(client_id)
@@ -931,9 +954,7 @@ async def get_valid_token(
             entry["refresh_token"] = str(
                 refreshed.get("refresh_token", refresh_token)
             )
-            entry["expires_in"] = int(
-                cast("int", refreshed.get("expires_in", 0))
-            )
+            entry["expires_in"] = int(refreshed.get("expires_in", 0))
             entry["created_at"] = datetime.now(UTC).isoformat()
             save_token_entry(entry)
         except httpx.HTTPError, KeyError:
@@ -946,7 +967,7 @@ def get_valid_token_sync(
     client_id: str | None = None,
     *,
     force_refresh: bool = False,
-) -> tuple[str, dict[str, object]] | None:
+) -> tuple[str, TokenEntry] | None:
     """Synchronous wrapper for :func:`get_valid_token`.
 
     Args:
@@ -955,7 +976,7 @@ def get_valid_token_sync(
         force_refresh: If True, always refresh the token.
 
     Returns:
-        tuple[str, dict[str, object]] | None: A tuple of (access_token,
+        tuple[str, TokenEntry] | None: A tuple of (access_token,
             token_entry), or None if no valid token is available.
     """
     return asyncio.run(get_valid_token(client_id, force_refresh=force_refresh))
@@ -1016,7 +1037,7 @@ def get_auth_client_credentials() -> tuple[str, str]:
 
 
 def _lock_for_cred(
-    cred: dict[str, object],
+    cred: TokenEntry,
 ) -> asyncio.Lock:
     """Get or create a lock for a specific credential set.
 
@@ -1035,15 +1056,15 @@ def _lock_for_cred(
 
 
 async def _refresh_cred_token(
-    cred: dict[str, object],
-) -> tuple[str, dict[str, object]]:
+    cred: TokenEntry,
+) -> tuple[str, TokenEntry]:
     """Refresh a credential's access token via the OAuth refresh grant.
 
     Args:
         cred: The credential dictionary to refresh.
 
     Returns:
-        tuple[str, dict[str, object]]: (new_access_token, updated_cred).
+        tuple[str, TokenEntry]: (new_access_token, updated_cred).
 
     Raises:
         httpx.HTTPStatusError: If the refresh request fails after retries.
@@ -1072,7 +1093,7 @@ async def _refresh_cred_token(
 
             if response.status_code in _INVALID_CREDENTIAL_STATUS_CODES:
                 try:
-                    error_data = cast("dict[str, object]", response.json())
+                    error_data = cast("TokenEntry", response.json())
                     error = error_data.get("error")
                     if error in ("invalid_client", "invalid_grant"):
                         error_desc = str(
@@ -1090,9 +1111,9 @@ async def _refresh_cred_token(
                     pass
 
             response.raise_for_status()
-            data = cast("dict[str, object]", response.json())
+            data = cast("TokenEntry", response.json())
             new_token = str(data["access_token"])
-            expires_in = int(cast("int", data.get("expires_in", 3600)))
+            expires_in = int(data.get("expires_in", 3600))  # type: ignore[arg-type]
 
             cred["access_token"] = new_token
             cred["expires_at"] = time.time() + expires_in - 60
@@ -1118,8 +1139,8 @@ async def _refresh_cred_token(
 
 async def get_tidal_token_for_cred(
     force_refresh: bool = False,
-    cred: dict[str, object] | None = None,
-) -> tuple[str, dict[str, object]]:
+    cred: TokenEntry | None = None,
+) -> tuple[str, TokenEntry]:
     """Retrieve an access token for a specific credential.
 
     Args:
@@ -1128,7 +1149,7 @@ async def get_tidal_token_for_cred(
             available credential.
 
     Returns:
-        tuple[str, dict[str, object]]: (access_token, credential_dict).
+        tuple[str, TokenEntry]: (access_token, credential_dict).
     """
     if cred is None:
         if not (tokens := load_tokens()):
@@ -1139,7 +1160,7 @@ async def get_tidal_token_for_cred(
     async with _lock_for_cred(cred):
         if (
             cred.get("access_token")
-            and cast("int", cred.get("expires_at", 0)) > time.time()
+            and cred.get("expires_at", 0) > time.time()
         ):
             return str(cred["access_token"]), cred
 
@@ -1151,14 +1172,14 @@ async def get_tidal_token_for_cred(
 
 async def get_tidal_token(
     force_refresh: bool = False,
-) -> tuple[str, dict[str, object]]:
+) -> tuple[str, TokenEntry]:
     """Retrieve an access token, picking a random credential.
 
     Args:
         force_refresh: If True, always refresh the token.
 
     Returns:
-        tuple[str, dict[str, object]]: (access_token, credential_dict).
+        tuple[str, TokenEntry]: (access_token, credential_dict).
     """
     return await get_tidal_token_for_cred(force_refresh=force_refresh)
 
@@ -1192,9 +1213,9 @@ async def _handle_404_retry(
     *,
     params: QueryParamTypes | None,
     token: str,
-    cred: dict[str, object],
+    cred: TokenEntry,
     client: httpx.AsyncClient,
-) -> tuple[httpx.Response, str, dict[str, object]]:
+) -> tuple[httpx.Response, str, TokenEntry]:
     """Handle a 404 by refreshing the token and retrying the request.
 
     Args:
@@ -1206,7 +1227,7 @@ async def _handle_404_retry(
         client: The HTTP client to use.
 
     Returns:
-        tuple[httpx.Response, str, dict[str, object]]:
+        tuple[httpx.Response, str, TokenEntry]:
             (response, refreshed_token, refreshed_cred).
     """
     fresh_token, fresh_cred = await get_tidal_token_for_cred(
@@ -1216,9 +1237,9 @@ async def _handle_404_retry(
         headers = _api_headers(fresh_token)
         response = await client.get(url, headers=headers, params=params)
         return response, fresh_token, fresh_cred
-    # Return a dummy response to signal no retry was needed
+    # Return existing response if token didn't change (no retry needed)
     return (
-        httpx.Response(_HTTP_NOT_FOUND),
+        response,
         token,
         cred,
     )
@@ -1229,8 +1250,8 @@ async def authed_get_json(
     *,
     params: QueryParamTypes | None = None,
     token: str | None = None,
-    cred: dict[str, object] | None = None,
-) -> tuple[dict[str, object], str, dict[str, object]]:
+    cred: TokenEntry | None = None,
+) -> tuple[dict[str, Any], str, TokenEntry]:
     """Perform an authenticated GET, retrying once on 401.
 
     Args:
@@ -1240,7 +1261,7 @@ async def authed_get_json(
         cred: Optional pre-fetched credential dict.
 
     Returns:
-        tuple[dict[str, object], str, dict[str, object]]:
+        tuple[dict[str, Any], str, TokenEntry]:
             (response_json, access_token, credential_dict).
     """
     if token is None or cred is None:
@@ -1291,7 +1312,7 @@ async def authed_get_json(
 
     response.raise_for_status()
     return (
-        cast("dict[str, object]", response.json()),
+        cast("dict[str, Any]", response.json()),
         token,
         cred,
     )
@@ -1301,8 +1322,8 @@ async def make_request(
     url: str,
     token: str | None = None,
     params: QueryParamTypes | None = None,
-    cred: dict[str, object] | None = None,
-) -> dict[str, object]:
+    cred: TokenEntry | None = None,
+) -> dict[str, Any]:
     """Make an authenticated GET request to a TIDAL API endpoint.
 
     Args:
@@ -1312,7 +1333,7 @@ async def make_request(
         cred: Optional pre-fetched credential dict.
 
     Returns:
-        dict[str, object]: Response payload with version info.
+        dict[str, Any]: Response payload with version info.
     """
     if token is None or cred is None:
         token, cred = await get_tidal_token_for_cred(cred=cred)
@@ -1355,15 +1376,14 @@ async def make_request(
 
     if response is None:
         msg = "No response received from server"
-        dummy = httpx.Response(
-            _HTTP_NOT_FOUND, request=httpx.Request("GET", url)
-        )
-        raise httpx.HTTPStatusError(msg, request=dummy.request, response=dummy)
+        request = httpx.Request("GET", url)
+        dummy = httpx.Response(_HTTP_NOT_FOUND, request=request)
+        raise httpx.HTTPStatusError(msg, request=request, response=dummy)
 
     response.raise_for_status()
     return {
         "version": "2.10",
-        "data": cast("dict[str, object]", response.json()),
+        "data": cast("dict[str, Any]", response.json()),
     }
 
 
