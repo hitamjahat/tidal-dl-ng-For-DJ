@@ -7,6 +7,8 @@ across the local filesystem.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import logging
 import math
 import os
@@ -15,7 +17,6 @@ import posixpath
 import re
 import sys
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit
 
 from pathvalidate import sanitize_filename, sanitize_filepath

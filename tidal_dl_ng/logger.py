@@ -1,8 +1,11 @@
 """Logging configuration and setup for the application."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar, TextIO, cast
+
 import logging
 import sys
-from typing import TYPE_CHECKING, ClassVar, TextIO, cast
 
 import coloredlogs
 from PySide6 import QtCore
@@ -70,8 +73,8 @@ class DebugWarningFilter(logging.Filter):
 class XStream(QtCore.QObject):
     """A thread-safe stream redirecting stdout/stderr to a Qt signal."""
 
-    _stdout: ClassVar["XStream | None"] = None
-    _stderr: ClassVar["XStream | None"] = None
+    _stdout: ClassVar[XStream | None] = None
+    _stderr: ClassVar[XStream | None] = None
 
     message_written: QtCore.Signal = QtCore.Signal(str)
 
@@ -115,7 +118,7 @@ class XStream(QtCore.QObject):
         return len(msg)
 
     @classmethod
-    def stdout(cls) -> "XStream":
+    def stdout(cls) -> XStream:
         """Get or create the singleton stdout XStream.
 
         Returns:
@@ -127,7 +130,7 @@ class XStream(QtCore.QObject):
         return cls._stdout
 
     @classmethod
-    def stderr(cls) -> "XStream":
+    def stderr(cls) -> XStream:
         """Get or create the singleton stderr XStream.
 
         Returns:

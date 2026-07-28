@@ -6,9 +6,10 @@ security token from the stream manifest into the AES key and nonce, and
 ``decrypt_file`` applies AES-CTR to recover the plaintext audio.
 """
 
+from typing import TYPE_CHECKING
+
 import base64
 import pathlib
-from typing import TYPE_CHECKING
 
 from Crypto.Cipher import AES
 from Crypto.Util import Counter
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
     from Crypto.Cipher._mode_ctr import CtrMode
 
 
-def _new_cbc_cipher(key: bytes, iv: bytes) -> "CbcMode":
+def _new_cbc_cipher(key: bytes, iv: bytes) -> CbcMode:
     """Create an AES-CBC cipher in CBC mode.
 
     Args:
@@ -34,7 +35,7 @@ def _new_cbc_cipher(key: bytes, iv: bytes) -> "CbcMode":
 def _new_ctr_cipher(
     key: bytes,
     counter: dict[str, int | bytes | bool],
-) -> "CtrMode":
+) -> CtrMode:
     """Create an AES-CTR cipher in CTR mode.
 
     Args:

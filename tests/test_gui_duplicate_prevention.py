@@ -1,5 +1,4 @@
-"""
-test_gui_duplicate_prevention.py
+"""test_gui_duplicate_prevention.py
 
 Test suite for GUI duplicate prevention features.
 
@@ -136,7 +135,6 @@ class TestToggleDuplicatePreventionHandler:
 
     def test_handler_emits_status_message_enabled(self):
         """Test that handler emits status message when enabled."""
-
         # Simulate the handler logic
         enabled = True
         status_msg = "enabled" if enabled else "disabled"

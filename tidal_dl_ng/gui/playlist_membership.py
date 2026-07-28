@@ -11,10 +11,11 @@ Architecture:
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from enum import StrEnum
-from typing import Any, cast
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from requests.exceptions import RequestException
@@ -239,12 +240,11 @@ class ThreadSafePlaylistCache:
             # Fall back to track-based IDs if metadata not yet loaded
             if self._playlist_metadata:
                 return set(self._playlist_metadata.keys())
-            else:
-                # Fallback: return playlist IDs that have at least one track
-                all_ids: set[str] = set()
-                for playlist_ids in self._data.values():
-                    all_ids.update(playlist_ids)
-                return all_ids
+            # Fallback: return playlist IDs that have at least one track
+            all_ids: set[str] = set()
+            for playlist_ids in self._data.values():
+                all_ids.update(playlist_ids)
+            return all_ids
 
 
 class PlaylistLoaderSignals(QtCore.QObject):
@@ -306,7 +306,7 @@ class PlaylistContextLoader(QtCore.QRunnable):
         if callable(json_fn):
             payload = json_fn()
             if isinstance(payload, dict):
-                return cast(dict[str, Any], payload)
+                return cast("dict[str, Any]", payload)
         return {}
 
     def _fetch_user_playlists_via_request(
@@ -324,7 +324,7 @@ class PlaylistContextLoader(QtCore.QRunnable):
                 if isinstance(item_any, dict):
                     playlists_data.append(
                         self._normalize_playlist_payload(
-                            cast(dict[str, Any], item_any)
+                            cast("dict[str, Any]", item_any)
                         )
                     )
 
@@ -338,7 +338,7 @@ class PlaylistContextLoader(QtCore.QRunnable):
                     if isinstance(item_any, dict):
                         playlists_data.append(
                             self._normalize_playlist_payload(
-                                cast(dict[str, Any], item_any)
+                                cast("dict[str, Any]", item_any)
                             )
                         )
 
@@ -442,7 +442,7 @@ class PlaylistContextLoader(QtCore.QRunnable):
             # If a low-level request hook is present, leverage it (tests attach a mock)
             req = getattr(self.session, "request", None)
             if callable(req):
-                req_any = cast(Any, req)
+                req_any = cast("Any", req)
                 return self._fetch_user_playlists_via_request(req_any)
 
             tidal_playlists = get_user_playlists(self.session)
@@ -555,7 +555,7 @@ class PlaylistContextLoader(QtCore.QRunnable):
         Returns:
             Set of track ID strings
         """
-        req = cast(Any, self.session.request)
+        req = cast("Any", self.session.request)
         track_ids: set[str] = set()
 
         # First page
@@ -572,7 +572,7 @@ class PlaylistContextLoader(QtCore.QRunnable):
 
         # Log loaded count
         playlist_display = (
-            playlist_name if playlist_name else playlist_uuid[:8]
+            playlist_name or playlist_uuid[:8]
         )
         logger_gui.debug(
             f"📋 Loaded {len(track_ids)} tracks from playlist '{playlist_display}'"
@@ -595,7 +595,7 @@ class PlaylistContextLoader(QtCore.QRunnable):
         playlist = self.session.playlist(playlist_uuid)
 
         # Use centralized API helper to get all items
-        items = get_playlist_items(cast(Any, playlist))
+        items = get_playlist_items(cast("Any", playlist))
 
         # Extract track IDs - normalize all IDs to strings
         track_ids: set[str] = set()
@@ -614,7 +614,7 @@ class PlaylistContextLoader(QtCore.QRunnable):
 
         # Log loaded count
         playlist_display = (
-            playlist_name if playlist_name else playlist_uuid[:8]
+            playlist_name or playlist_uuid[:8]
         )
         logger_gui.debug(
             f"📋 Loaded {len(track_ids)} tracks from playlist '{playlist_display}'"
@@ -697,13 +697,13 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
 
         # Create spinner widget for PENDING state
         if parent:
-            spinner_cls = cast(Any, QtWaitingSpinner)
+            spinner_cls = cast("Any", QtWaitingSpinner)
             self._spinner = spinner_cls(
                 parent,
                 centerOnParent=False,
                 disableParentWhenSpinning=False,
             )
-            spinner_any = cast(Any, self._spinner)
+            spinner_any = cast("Any", self._spinner)
             spinner_any.setNumberOfLines(12)
             spinner_any.setLineLength(4)
             spinner_any.setLineWidth(2)
@@ -752,7 +752,7 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
         if state == PlaylistCellState.PENDING:
             # Show spinner for this cell
             if self._spinner:
-                spinner_any = cast(Any, self._spinner)
+                spinner_any = cast("Any", self._spinner)
                 # Position spinner in cell
                 spinner_size = self._spinner.width()
                 center_x = content_rect.center().x() - spinner_size // 2
@@ -825,7 +825,7 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
                         )
                         source_model = model.sourceModel()
                     else:
-                        source_index = cast(Any, index)
+                        source_index = cast("Any", index)
                         source_model = model
 
                     # Only proceed if source index is valid
@@ -852,7 +852,7 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
                             )
 
                         if obj_data is not None:
-                            tid_any = cast(Any, getattr(obj_data, "id", None))
+                            tid_any = cast("Any", getattr(obj_data, "id", None))
                             if tid_any is not None:
                                 track_id = str(tid_any)
                                 playlists_for_track = (
@@ -923,7 +923,7 @@ class PlaylistColumnDelegate(QtWidgets.QStyledItemDelegate):
             is_ready: True if cache is ready, False if loading started
         """
         self._cache_ready = is_ready
-        spinner_any = cast(Any, self._spinner) if self._spinner else None
+        spinner_any = cast("Any", self._spinner) if self._spinner else None
 
         if not is_ready:
             # Cache loading started - reset to PENDING

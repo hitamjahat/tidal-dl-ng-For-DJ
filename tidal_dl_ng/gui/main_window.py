@@ -151,7 +151,7 @@ class MainWindow(
     s_queue_download_item_failed: QtCore.SignalInstance = _qt_signal(object)
     s_queue_download_item_skipped: QtCore.SignalInstance = _qt_signal(object)
 
-    def setParent(  # noqa: D401 - Qt override
+    def setParent(
         self,
         parent: QtCore.QObject | None,
         *args: object,
@@ -191,7 +191,7 @@ class MainWindow(
         # annotations; cast it to a typed callable for type safety.
         setup_ui = cast(
             "Callable[[Ui_MainWindow, QtWidgets.QMainWindow], None]",
-            getattr(Ui_MainWindow, "setupUi"),
+            Ui_MainWindow.setupUi,
         )
         setup_ui(self, self)
         self.setWindowTitle("TIDAL Downloader Next Generation")

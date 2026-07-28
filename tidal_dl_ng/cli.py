@@ -4,11 +4,12 @@ Provides Typer-based commands for downloading TIDAL media via URLs,
 favorites collections, and interactive GUI launch.
 """
 
+import types
+from typing import TYPE_CHECKING, Annotated, cast
+
 import signal
 import sys
-import types
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, cast
 from urllib.parse import urlparse
 
 # Ensure UTF-8 output on Windows so Rich spinners (Braille) don't crash

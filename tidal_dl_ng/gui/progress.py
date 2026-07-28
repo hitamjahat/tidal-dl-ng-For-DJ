@@ -6,12 +6,8 @@ Handles progress bar updates and formatting.
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
 
 from PySide6 import QtWidgets
-
-if TYPE_CHECKING:
-    pass
 
 
 class ProgressMixin:

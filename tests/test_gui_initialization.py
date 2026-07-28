@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from typing import ClassVar, cast
+
 import os
 import unittest
-from typing import ClassVar, cast
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi.media import Quality

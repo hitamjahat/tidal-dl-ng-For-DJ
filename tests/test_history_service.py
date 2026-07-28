@@ -1,5 +1,4 @@
-"""
-test_history_service.py
+"""test_history_service.py
 
 Test suite for the HistoryService class and download history functionality.
 

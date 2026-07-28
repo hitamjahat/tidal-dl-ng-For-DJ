@@ -7,11 +7,12 @@ mixin so the methods keep accessing `self.settings`, `self.runtime`,
 `self.tidal`, `self.item`, and the other helpers defined on `Download`.
 """
 
+from typing import TYPE_CHECKING, cast
+
 import logging
 import os
 import pathlib
 from concurrent import futures
-from typing import TYPE_CHECKING, cast
 
 from rich.progress import Progress, TaskID
 from tidalapi.album import Album

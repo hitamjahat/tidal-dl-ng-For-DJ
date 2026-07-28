@@ -7,8 +7,9 @@ and queued download items.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from dataclasses import dataclass
 
 if TYPE_CHECKING:
     from PySide6 import QtCore

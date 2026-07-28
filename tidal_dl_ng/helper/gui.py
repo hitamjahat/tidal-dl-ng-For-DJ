@@ -15,8 +15,9 @@ All UI code here is intentionally decoupled from application logic; the
 helpers only read/write Qt model data and never perform downloads.
 """
 
-import re
 from typing import cast
+
+import re
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi import Album, Mix, Playlist, Track, UserPlaylist, Video

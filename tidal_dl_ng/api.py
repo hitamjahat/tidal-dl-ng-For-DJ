@@ -5,10 +5,11 @@ for different platforms. Keys are loaded from a local fallback set
 and optionally refreshed from a remote GitHub Gist.
 """
 
+from typing import TypedDict, cast
+
 import json
 import logging
 import re
-from typing import TypedDict, cast
 
 import requests
 

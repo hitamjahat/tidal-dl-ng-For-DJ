@@ -10,6 +10,8 @@ Classes:
         operations, and metadata.
 """
 
+from typing import Any, cast
+
 import logging
 import os
 import pathlib
@@ -18,7 +20,6 @@ import shutil
 import tempfile
 import time
 from concurrent import futures
-from typing import Any, cast
 from uuid import uuid4
 
 import m3u8
@@ -54,17 +55,17 @@ from tidal_dl_ng.constants import (
     MediaType,
     QualityVideo,
 )
+from tidal_dl_ng.helper.collection_download import CollectionDownloadMixin
 from tidal_dl_ng.helper.decryption import decrypt_file, decrypt_security_token
 from tidal_dl_ng.helper.exceptions import MediaMissing
-from tidal_dl_ng.helper.collection_download import CollectionDownloadMixin
 from tidal_dl_ng.helper.metadata_ops import MetadataWriterMixin
-from tidal_dl_ng.helper.requests_client import RequestsClient
 from tidal_dl_ng.helper.path import (
     check_file_exists,
     format_path_media,
     path_file_sanitize,
     url_to_filename,
 )
+from tidal_dl_ng.helper.requests_client import RequestsClient
 from tidal_dl_ng.helper.tidal import (
     instantiate_media,
     name_builder_item,
@@ -76,10 +77,10 @@ from tidal_dl_ng.model.downloader import (
     DownloadParams,
     DownloadRuntime,
     DownloadSegmentResult,
-    ItemRequest,
     ItemFinalizeRequest,
     ItemPrepared,
     ItemPrepareRequest,
+    ItemRequest,
     QualityState,
     SegmentDownloadRequest,
     SegmentMeta,
@@ -98,10 +99,11 @@ STREAM_INFO_RETRY_TOTAL: int = 3
 # Future: Use pathlib.Path everywhere
 class Download(MetadataWriterMixin, CollectionDownloadMixin):
     """Main class for managing downloads, segment merging, file
-    operations, and metadata for TIDAL media."""
+    operations, and metadata for TIDAL media.
+    """
 
     settings: Settings
-    tidal: "Tidal"
+    tidal: Tidal
     session: Session
     fn_logger: logging.Logger
     params: DownloadParams
@@ -1650,7 +1652,7 @@ class Download(MetadataWriterMixin, CollectionDownloadMixin):
             "quality_decision",
             expected=("honor user's configured audio quality"),
             actual=(
-                f"requested={str(quality_requested)}, "
+                f"requested={quality_requested!s}, "
                 f"is_lossless={is_lossless_requested}, "
                 f"download_dolby_atmos="
                 f"{self.settings.data.download_dolby_atmos}, "

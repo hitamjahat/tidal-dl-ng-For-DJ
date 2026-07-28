@@ -4,10 +4,11 @@ Provides functions for building media names, searching, pagination,
 session interaction, and raw JSON metadata extraction from the TIDAL API.
 """
 
+from typing import cast
+
 import contextlib
 import os
 from collections.abc import Callable
-from typing import cast
 
 import requests
 from tidalapi.album import Album

@@ -6,8 +6,9 @@ raw API results into :class:`ResultItem` rows for the results tree.
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, cast
+
+import time
 
 from PySide6 import QtCore
 from requests.exceptions import RequestException

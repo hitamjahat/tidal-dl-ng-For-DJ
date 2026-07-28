@@ -18,8 +18,9 @@ Performance:
     - Thread-safe signal emissions
 """
 
-from contextlib import suppress
 from typing import cast, override
+
+from contextlib import suppress
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from shiboken6 import Shiboken

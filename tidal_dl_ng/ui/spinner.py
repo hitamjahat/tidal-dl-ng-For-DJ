@@ -1,5 +1,4 @@
-"""
-The MIT License (MIT)
+"""The MIT License (MIT)
 
 Copyright (c) 2012-2014 Alexander Turkin
 Copyright (c) 2014 William Hallatt
@@ -76,7 +75,7 @@ class QtWaitingSpinner(QWidget):
             self._currentCounter = 0
 
         painter.setPen(Qt.PenStyle.NoPen)
-        for i in range(0, self._numberOfLines):
+        for i in range(self._numberOfLines):
             painter.save()
             painter.translate(self._innerRadius + self._lineLength, self._innerRadius + self._lineLength)
             rotateAngle = float(360 * i) / float(self._numberOfLines)

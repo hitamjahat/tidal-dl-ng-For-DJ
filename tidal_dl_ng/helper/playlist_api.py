@@ -7,8 +7,9 @@ consistent error handling.
 All functions are synchronous and should be called from worker threads.
 """
 
-from collections.abc import Iterable
 from typing import Final, cast
+
+from collections.abc import Iterable
 
 from requests.exceptions import RequestException
 from tidalapi.media import Track

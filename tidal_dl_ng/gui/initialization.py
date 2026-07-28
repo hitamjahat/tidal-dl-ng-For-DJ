@@ -7,10 +7,11 @@ is delegated to the application's thread pool and event-driven managers.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Protocol, TypedDict, cast
+
 import inspect
 from collections.abc import Iterable
 from enum import Enum
-from typing import TYPE_CHECKING, Protocol, TypedDict, cast
 
 from ansi2html import Ansi2HTMLConverter
 from PySide6 import QtCore, QtGui, QtWidgets

@@ -8,9 +8,10 @@ trace events for diagnostics.
 
 from __future__ import annotations
 
+from typing import Any, ParamSpec, TypeVar
+
 import time
 from collections.abc import Callable
-from typing import Any, ParamSpec, TypeVar
 
 from PySide6 import QtCore
 

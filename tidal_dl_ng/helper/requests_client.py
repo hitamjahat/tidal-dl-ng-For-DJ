@@ -1,7 +1,8 @@
 """HTTP client helpers for downloading text and binary content."""
 
-from collections.abc import Mapping
 from typing import Final
+
+from collections.abc import Mapping
 
 import requests
 from requests.adapters import HTTPAdapter

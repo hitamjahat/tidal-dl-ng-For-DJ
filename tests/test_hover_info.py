@@ -36,7 +36,7 @@ def qt_app():
     app = QtWidgets.QApplication.instance()
     if app is None:
         app = QtWidgets.QApplication([])
-    yield app
+    return app
     # Note: Don't quit the app as it may be shared across tests
 
 

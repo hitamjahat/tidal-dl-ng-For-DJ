@@ -5,8 +5,9 @@ Handles all Qt signal definitions and connections.
 
 from __future__ import annotations
 
-import contextlib
 from typing import TYPE_CHECKING, cast
+
+import contextlib
 
 from tidalapi import Quality
 
@@ -14,8 +15,9 @@ from tidal_dl_ng.constants import QualityVideo
 from tidal_dl_ng.helper.gui import HumanProxyModel, get_results_media_item
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
     from typing import ParamSpec, Protocol, TypeVar
+
+    from collections.abc import Callable, Sequence
 
     from PySide6 import QtCore, QtGui, QtWidgets
     from tidalapi import Album, Artist, Mix, Playlist, Track, Video

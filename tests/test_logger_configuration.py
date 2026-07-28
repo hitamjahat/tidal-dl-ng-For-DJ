@@ -1,5 +1,4 @@
-"""
-test_logger_configuration.py
+"""test_logger_configuration.py
 
 Test suite for logger configuration with colored output.
 
@@ -62,7 +61,9 @@ class TestColoredFormatter:
         level_styles = coloredlogs.DEFAULT_LEVEL_STYLES.copy()
         level_styles["info"] = {"color": "green"}
 
-        formatter = coloredlogs.ColoredFormatter(fmt="> %(message)s", level_styles=level_styles)
+        formatter = coloredlogs.ColoredFormatter(
+            fmt="> %(message)s", level_styles=level_styles
+        )
 
         # Formatter should exist
         assert formatter is not None
@@ -73,7 +74,9 @@ class TestColoredFormatter:
         level_styles["info"] = {"color": "green"}
 
         log_fmt = "> %(message)s"
-        formatter = coloredlogs.ColoredFormatter(fmt=log_fmt, level_styles=level_styles)
+        formatter = coloredlogs.ColoredFormatter(
+            fmt=log_fmt, level_styles=level_styles
+        )
 
         # Format string should be set
         assert formatter._fmt == log_fmt or hasattr(formatter, "_style")
@@ -91,7 +94,9 @@ class TestLoggerHandlers:
         level_styles = coloredlogs.DEFAULT_LEVEL_STYLES.copy()
         level_styles["info"] = {"color": "green"}
 
-        formatter = coloredlogs.ColoredFormatter(fmt="> %(message)s", level_styles=level_styles)
+        formatter = coloredlogs.ColoredFormatter(
+            fmt="> %(message)s", level_styles=level_styles
+        )
 
         handler.setFormatter(formatter)
 
@@ -104,7 +109,9 @@ class TestLoggerHandlers:
         level_styles = coloredlogs.DEFAULT_LEVEL_STYLES.copy()
         level_styles["info"] = {"color": "green"}
 
-        formatter = coloredlogs.ColoredFormatter(fmt="> %(message)s", level_styles=level_styles)
+        formatter = coloredlogs.ColoredFormatter(
+            fmt="> %(message)s", level_styles=level_styles
+        )
 
         handler.setFormatter(formatter)
 
@@ -121,7 +128,13 @@ class TestLogMessageFormatting:
 
         # Create a test record
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname="", lineno=0, msg="Test message", args=(), exc_info=None
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="Test message",
+            args=(),
+            exc_info=None,
         )
 
         formatter = logging.Formatter(log_fmt)
@@ -165,10 +178,18 @@ class TestColoredlogsIntegration:
         level_styles = coloredlogs.DEFAULT_LEVEL_STYLES.copy()
         level_styles["info"] = {"color": "green"}
 
-        formatter = coloredlogs.ColoredFormatter(fmt="%(message)s", level_styles=level_styles)
+        formatter = coloredlogs.ColoredFormatter(
+            fmt="%(message)s", level_styles=level_styles
+        )
 
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname="", lineno=0, msg="Test", args=(), exc_info=None
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="Test",
+            args=(),
+            exc_info=None,
         )
 
         formatted = formatter.format(record)
@@ -232,7 +253,7 @@ class TestXStreamIntegration:
         stream = XStream()
 
         # Should have messageWritten signal
-        assert hasattr(stream, "messageWritten")
+        assert hasattr(stream, "message_written")
 
 
 class TestLoggerLevels:
@@ -264,9 +285,13 @@ class TestConsistentStyling:
         level_styles["info"] = {"color": "green"}
 
         # Both formatters should use the same styles
-        gui_formatter = coloredlogs.ColoredFormatter(fmt="> %(message)s", level_styles=level_styles)
+        gui_formatter = coloredlogs.ColoredFormatter(
+            fmt="> %(message)s", level_styles=level_styles
+        )
 
-        cli_formatter = coloredlogs.ColoredFormatter(fmt="> %(message)s", level_styles=level_styles)
+        cli_formatter = coloredlogs.ColoredFormatter(
+            fmt="> %(message)s", level_styles=level_styles
+        )
 
         # Both should exist and be configured
         assert gui_formatter is not None

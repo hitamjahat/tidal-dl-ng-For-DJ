@@ -1,12 +1,13 @@
 """Dialog windows for the application."""
 
+from typing import ClassVar
+
 import datetime
 import os
 import shutil
 import webbrowser
 from enum import Enum
 from pathlib import Path
-from typing import ClassVar
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import SignalInstance

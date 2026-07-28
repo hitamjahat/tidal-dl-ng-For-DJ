@@ -9,9 +9,10 @@ This patch modifies the ``parse_attr_value`` function to gracefully handle
 non-integer values for attributes that are expected to be integers.
 """
 
+from typing import Any
+
 import logging
 import re
-from typing import Any
 from xml.dom.minidom import Element
 
 from mpegdash import utils as mpegdash_utils

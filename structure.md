@@ -412,6 +412,176 @@ This documentation should be kept synchronized with the source code to ensure it
 
 ---
 
+## File: tidal_dl_ng/helper/tidal_auth/__init__.py
+
+**File Path:** `tidal_dl_ng/helper/tidal_auth/__init__.py`
+
+**Purpose:** HiFi-API OAuth 2.0 Device Authorization flow for TIDAL.
+
+**Description:** This package implements the upgraded authentication process that uses direct OAuth 2.0 Device Authorization Grant with custom credentials, bypassing `tidalapi`'s `login_pkce()` which has known issues with lossless stream retrieval. It exports the public API for the `tidal_auth` package.
+
+**Functions and Classes:**
+- Exports functions from `auth.py`, `api_requests.py`, `token_refresh.py`, `http_client.py`, `proxy.py`, and `token_storage.py`.
+
+**Dependencies:** Internal modules within `tidal_dl_ng.helper.tidal_auth`.
+
+**Relationships:** Used by `tidal_dl_ng/config.py`, `tidal_dl_ng/gui/tidal_session.py`, and `tidal_dl_ng/helper/hifi_api.py`.
+
+**Goals:** Provide a clean, unified public API for TIDAL authentication and proxy management.
+
+---
+
+## File: tidal_dl_ng/helper/tidal_auth/auth.py
+
+**File Path:** `tidal_dl_ng/helper/tidal_auth/auth.py`
+
+**Purpose:** Core OAuth token refresh and verification logic.
+
+**Description:** Handles refreshing access tokens using the OAuth refresh_token grant and verifying tokens via the playbackinfopostpaywall endpoint.
+
+**Functions and Classes:**
+- `poll_for_authorization`: Polls the TIDAL token endpoint until authorization is complete.
+- `refresh_access_token`: Refreshes an OAuth access token.
+- `verify_token`: Verifies a token by requesting playback info for a known track.
+
+**Dependencies:** `httpx`, `tidal_dl_ng.constants`, `tidal_dl_ng.helper.tidal_auth.http_client`, `tidal_dl_ng.helper.tidal_auth.proxy`.
+
+**Relationships:** Used by `token_refresh.py`.
+
+**Goals:** Provide robust token refresh and verification with proxy support and retry logic.
+
+---
+
+## File: tidal_dl_ng/helper/tidal_auth/device_auth.py
+
+**File Path:** `tidal_dl_ng/helper/tidal_auth/device_auth.py`
+
+**Purpose:** OAuth 2.0 Device Authorization flow implementation.
+
+**Description:** Executes the full OAuth 2.0 Device Authorization flow, including requesting a device code, polling for authorization, and saving the resulting token. Uses the shared HTTP client from `http_client.py` for connection pooling, proxy support, and automatic proxy rotation. Delegates `poll_for_authorization` and `verify_token` to `auth.py` to avoid code duplication.
+
+**Functions and Classes:**
+- `run_device_authorization_flow`: Executes the async device authorization flow.
+- `run_device_authorization_flow_sync`: Synchronous wrapper for the device authorization flow.
+
+**Dependencies:** `asyncio`, `datetime`, `webbrowser`, `tidal_dl_ng.constants`, `tidal_dl_ng.helper.tidal_auth.auth`, `tidal_dl_ng.helper.tidal_auth.http_client`, `tidal_dl_ng.helper.tidal_auth.token_storage`.
+
+**Relationships:** Exported by `__init__.py` and used by CLI/GUI for initial login.
+
+**Goals:** Provide a reliable way to obtain TIDAL tokens using the device authorization grant, leveraging shared HTTP client infrastructure for proxy support and connection reuse.
+
+---
+
+## File: tidal_dl_ng/helper/tidal_auth/api_requests.py
+
+**File Path:** `tidal_dl_ng/helper/tidal_auth/api_requests.py`
+
+**Purpose:** Client credentials grant implementation.
+
+**Description:** Handles obtaining tokens using the client credentials grant for API requests.
+
+**Functions and Classes:**
+- `get_token_client_credentials`: Obtains a token using the client credentials grant.
+- `get_auth_client_credentials`: Obtains auth client credentials.
+
+**Dependencies:** `httpx`, `tidal_dl_ng.constants`, `tidal_dl_ng.helper.tidal_auth.http_client`.
+
+**Relationships:** Exported by `__init__.py`.
+
+**Goals:** Support client credentials grant for specific API operations.
+
+---
+
+## File: tidal_dl_ng/helper/tidal_auth/token_refresh.py
+
+**File Path:** `tidal_dl_ng/helper/tidal_auth/token_refresh.py`
+
+**Purpose:** High-level token retrieval and refresh logic with per-credential locking.
+
+**Description:** Provides async functions to retrieve a valid TIDAL access token for a given credential, automatically refreshing it if expired. Uses per-credential `asyncio.Lock` to prevent concurrent refresh storms, supports proxy rotation on refresh, and falls back to a single retry when proxies are disabled.
+
+**Functions and Classes:**
+- `_refresh_locks` (`dict[str, asyncio.Lock]`): Module-level registry of per-credential locks.
+- `_lock_for_cred(cred: TokenEntry) -> asyncio.Lock`: Gets or creates a lock for a specific credential set.
+- `_refresh_cred_token(cred: TokenEntry) -> tuple[str, TokenEntry]`: Refreshes a credential's access token via the OAuth refresh grant, with retry logic.
+- `get_tidal_token_for_cred(force_refresh: bool = False, cred: TokenEntry | None = None) -> tuple[str, TokenEntry]`: Retrieves an access token for a specific credential, refreshing if needed.
+- `get_tidal_token(force_refresh: bool = False) -> tuple[str, TokenEntry]`: Retrieves an access token using the first available credential.
+
+**Dependencies:** `asyncio`, `time`, `httpx`, `tidal_dl_ng.constants`, `tidal_dl_ng.helper.tidal_auth.auth`, `tidal_dl_ng.helper.tidal_auth.http_client`, `tidal_dl_ng.helper.tidal_auth.proxy`, `tidal_dl_ng.helper.tidal_auth.token_storage`.
+
+**Relationships:** Exported by `__init__.py` and used by `api_requests.py`, `hifi_api.py`, and `tidal_dl_ng/config.py` to ensure valid tokens before API calls.
+
+**Goals:** Ensure the application always has a valid TIDAL access token with per-credential concurrency safety.
+
+---
+
+## File: tidal_dl_ng/helper/tidal_auth/http_client.py
+
+**File Path:** `tidal_dl_ng/helper/tidal_auth/http_client.py`
+
+**Purpose:** Shared HTTP client management.
+
+**Description:** Provides a shared `httpx.AsyncClient` with connection pooling, proxy support, and automatic proxy rotation for rate limiting. Delegates proxy loading, testing, and selection to `proxy.py`.
+
+**Functions and Classes:**
+- `get_http_client`: Gets or creates the shared HTTP client.
+- `update_global_client`: Updates the global HTTP client, optionally with a new proxy.
+- `auth_headers`: Builds headers for OAuth device authorization and token requests.
+- `api_headers`: Builds headers for authenticated TIDAL API requests.
+
+**Dependencies:** `asyncio`, `httpx`, `tidal_dl_ng.constants`, `tidal_dl_ng.helper.tidal_auth.proxy`.
+
+**Relationships:** Used by all modules in `tidal_auth` that make HTTP requests.
+
+**Goals:** Optimize HTTP connections and handle proxy rotation seamlessly.
+
+---
+
+## File: tidal_dl_ng/helper/tidal_auth/proxy.py
+
+**File Path:** `tidal_dl_ng/helper/tidal_auth/proxy.py`
+
+**Purpose:** Proxy management and testing.
+
+**Description:** Handles loading, testing, and selecting working proxies for HTTP requests to the TIDAL API.
+
+**Functions and Classes:**
+- `load_proxies`: Loads proxies from a file.
+- `test_proxy`: Tests if a proxy is working.
+- `get_working_proxy`: Finds a working proxy from the loaded list.
+
+**Dependencies:** `asyncio`, `os`, `secrets`, `pathlib`, `httpx`.
+
+**Relationships:** Used by `http_client.py` and `token_refresh.py`.
+
+**Goals:** Provide reliable proxy support to bypass rate limits and geo-restrictions.
+
+---
+
+## File: tidal_dl_ng/helper/tidal_auth/token_storage.py
+
+**File Path:** `tidal_dl_ng/helper/tidal_auth/token_storage.py`
+
+**Purpose:** Token persistence and management.
+
+**Description:** Handles loading, saving, finding, and deleting TIDAL OAuth tokens from the local filesystem (`token.json`).
+
+**Functions and Classes:**
+- `TokenResponse`: TypedDict for TIDAL API token responses.
+- `TokenEntry`: TypedDict for stored token entries.
+- `load_tokens`: Loads all tokens from the storage file.
+- `save_token_entry`: Saves or updates a token entry.
+- `delete_token_entry`: Deletes a token entry.
+- `find_token_entry`: Finds a token entry by client ID or user ID.
+
+**Dependencies:** `json`, `os`, `pathlib`, `tidal_dl_ng.constants`.
+
+**Relationships:** Used by `auth.py` and `token_refresh.py`.
+
+**Goals:** Securely and reliably store TIDAL authentication tokens across sessions.
+
+---
+
 ## File: stubs/tidal_dl_ng/ui/dialog_version.pyi
 
 **File Path:** `stubs/tidal_dl_ng/ui/dialog_version.pyi`

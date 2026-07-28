@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
+
+from collections.abc import Callable
 
 from PySide6 import QtCore, QtWidgets
 from tidalapi.album import Album
@@ -39,9 +40,9 @@ FavoriteFactory = Callable[[Any, str], FavoriteFunction]
 ItemsResultsFetcher = Callable[[Session, Any, bool], list[Any]]
 UserMediaListsFetcher = Callable[[Session], dict[str, list[Any]]]
 
-FAVORITE_FUNCTION_FACTORY = cast(FavoriteFactory, favorite_function_factory)
-ITEMS_RESULTS_ALL = cast(ItemsResultsFetcher, items_results_all)
-USER_MEDIA_LISTS = cast(UserMediaListsFetcher, user_media_lists)
+FAVORITE_FUNCTION_FACTORY = cast("FavoriteFactory", favorite_function_factory)
+ITEMS_RESULTS_ALL = cast("ItemsResultsFetcher", items_results_all)
+USER_MEDIA_LISTS = cast("UserMediaListsFetcher", user_media_lists)
 
 
 class GuiPlaylistManager:
@@ -799,7 +800,7 @@ class GuiPlaylistManager:
         # Add playlists as children
         for playlist in playlists:
             twi_child = QtWidgets.QTreeWidgetItem(parent_item)
-            name = playlist.name if playlist.name else ""
+            name = playlist.name or ""
             twi_child.setText(0, name)
             set_user_list_media(twi_child, playlist)
             info = f"({playlist.num_tracks + playlist.num_videos} Tracks)"
@@ -818,7 +819,7 @@ class GuiPlaylistManager:
         Returns:
             tuple[list[Folder], list[Playlist]]: Sub-folders and playlists within the folder.
         """
-        folder_id = folder.id if folder.id else "root"
+        folder_id = folder.id or "root"
 
         # Fetch sub-folders with manual pagination
         offset = 0
@@ -833,7 +834,7 @@ class GuiPlaylistManager:
                 break
 
             batch = self._safe_tidal_call(
-                cast(Callable[..., list[Folder]], playlist_folders_fn),
+                cast("Callable[..., list[Folder]]", playlist_folders_fn),
                 limit=limit,
                 offset=offset,
                 parent_folder_id=folder_id,

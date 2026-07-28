@@ -15,10 +15,10 @@ Performance Considerations:
     - Thread-safe signal emissions for cross-thread updates
 """
 
+
 import datetime
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import suppress
-from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi import Album, Mix, Playlist, Track, Video
@@ -36,10 +36,6 @@ from tidal_dl_ng.helper.tidal import (
     name_builder_title,
     quality_audio_highest,
 )
-
-if TYPE_CHECKING:
-    pass
-
 
 type TrackExtras = Mapping[str, object]
 type TrackExtrasCallback = Callable[[str, TrackExtras | None], None]
@@ -214,7 +210,7 @@ class TrackInfoFormatter:
 
         if bit_depth and sample_rate:
             return f"{bit_depth}-bit / {sample_rate / 1000:.1f} kHz"
-        elif sample_rate:
+        if sample_rate:
             return f"{sample_rate / 1000:.1f} kHz"
         return "N/A"
 
@@ -266,7 +262,7 @@ class InfoTabWidget(QtCore.QObject):
     ) -> tuple[str, QtWidgets.QLabel]:
         """Create a fallback invisible widget for a missing UI element."""
         name = (
-            desc.split("(")[-1].rstrip(")")
+            desc.rsplit("(", maxsplit=1)[-1].rstrip(")")
             if "(" in desc and ")" in desc
             else f"fallback_{desc.replace(' ', '_')}"
         )

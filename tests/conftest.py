@@ -22,7 +22,7 @@ def qapp():
     QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_DisableHighDpiScaling, True)
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    yield app
+    return app
 
 
 # Backward compatible alias

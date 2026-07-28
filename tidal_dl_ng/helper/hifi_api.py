@@ -12,19 +12,26 @@ Merged from hifi-api-main/main.py (lines 303-1242).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import asyncio
 import os
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import Any
 
+from tidal_dl_ng.helper.tidal_auth.api_requests import (
+    authed_get_json,
+    make_request,
+)
+from tidal_dl_ng.helper.tidal_auth.token_refresh import (
+    get_tidal_token_for_cred,
+)
+
+# TODO: Move these to a utils module
 from tidal_dl_ng.helper.tidal_auth import (
     _album_tracks_sem,
     _extract_uuid_from_tidal_url,
-    authed_get_json,
-    get_tidal_token_for_cred,
-    make_request,
 )
 
 #: API version string for response payloads.

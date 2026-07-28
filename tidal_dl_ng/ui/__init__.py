@@ -7,15 +7,18 @@
 
 from __future__ import annotations
 
-import importlib
 from types import ModuleType
+
+import importlib
 
 # Import generated UI module
 _ui_mod: ModuleType = importlib.import_module("tidal_dl_ng.ui.dialog_playlist_manager")
 
 # Attach the implementation class from gui
 try:
-    from tidal_dl_ng.gui.dialog_playlist_manager import PlaylistManagerDialog as _ImplDialog
+    from tidal_dl_ng.gui.dialog_playlist_manager import (
+        PlaylistManagerDialog as _ImplDialog,
+    )
 except Exception:
     _ImplDialog = None
 
@@ -27,7 +30,9 @@ if _ImplDialog is not None:
     PlaylistManagerDialog = _ImplDialog
 
 try:
-    from tidal_dl_ng.ui.dialog_playlist_manager import Ui_DialogPlaylistManager as _UiClass
+    from tidal_dl_ng.ui.dialog_playlist_manager import (
+        Ui_DialogPlaylistManager as _UiClass,
+    )
 except Exception:
     _UiClass = None
 

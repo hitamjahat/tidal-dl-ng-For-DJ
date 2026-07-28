@@ -65,7 +65,9 @@ def _check_mainwindow_inheritance() -> tuple[int, int]:
     """
     try:
         from tidal_dl_ng.gui.main_window import MainWindow
-        from tidal_dl_ng.gui.playlist_membership_mixin import PlaylistMembershipMixin
+        from tidal_dl_ng.gui.playlist_membership_mixin import (
+            PlaylistMembershipMixin,
+        )
 
         if issubclass(MainWindow, PlaylistMembershipMixin):
             print("✅ Check 6: MainWindow has PlaylistMembershipMixin")

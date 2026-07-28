@@ -7,8 +7,9 @@ This module provides the GuiQueueManager class which handles:
 - Managing download status and progress
 """
 
-import threading
 from typing import TYPE_CHECKING
+
+import threading
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi import Album, Artist, Mix, Playlist, Quality, Track, Video
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
 class GuiQueueManager:
     """Manages the download queue GUI and logic."""
 
-    def __init__(self, main_window: "MainWindow") -> None:
+    def __init__(self, main_window: MainWindow) -> None:
         """Initialize the queue manager.
 
         Args:

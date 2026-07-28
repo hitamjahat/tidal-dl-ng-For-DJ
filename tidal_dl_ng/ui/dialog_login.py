@@ -8,7 +8,15 @@
 
 from PySide6.QtCore import QCoreApplication, QMetaObject, QRect, Qt
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QDialogButtonBox, QHBoxLayout, QLabel, QSizePolicy, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QDialogButtonBox,
+    QHBoxLayout,
+    QLabel,
+    QSizePolicy,
+    QTextBrowser,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class Ui_DialogLogin:

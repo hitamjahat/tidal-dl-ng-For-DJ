@@ -7,8 +7,9 @@ FLAC, MP3 and MP4 containers via :mod:`mutagen`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+from dataclasses import dataclass, field
 
 import mutagen
 from mutagen import flac, id3, mp3, mp4

@@ -8,13 +8,14 @@ stream retrieval.
 
 # ruff: noqa: T201
 
+from typing import Generic, Protocol, TypeVar, cast, runtime_checkable
+
 import json
 import shutil
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Lock
-from typing import Generic, Protocol, TypeVar, cast, runtime_checkable
 
 from tidalapi.media import Quality, VideoQuality
 from tidalapi.session import Config, Session
@@ -45,7 +46,7 @@ class JsonSerializable(Protocol):
         raise NotImplementedError
 
     @classmethod
-    def from_json(cls, *args: object, **kwargs: object) -> "JsonSerializable":
+    def from_json(cls, *args: object, **kwargs: object) -> JsonSerializable:
         """Deserialize a JSON string into an instance."""
         raise NotImplementedError
 
@@ -135,7 +136,7 @@ class BaseConfig(Generic[TConfigData]):
             _ = e
             cls_model = cast("type[JsonSerializable]", self.cls_model)
             self.data = cast("TConfigData", cls_model())
-        except (TypeError, FileNotFoundError):
+        except TypeError, FileNotFoundError:
             cls_model = cast("type[JsonSerializable]", self.cls_model)
             self.data = cast("TConfigData", cls_model())
 
@@ -461,9 +462,7 @@ class Tidal(BaseConfig[ModelToken], metaclass=SingletonMeta):
             track = self.session.track("1781887", with_album=True)
             stream = track.get_stream()
             quality = stream.audio_quality
-        except (
-            Exception
-        ) as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        except Exception as exc:  # pylint: disable=broad-exception-caught
             print(f"WARNING: Could not verify lossless capability: {exc}")
             # Don't block login — the token may still work for some tracks.
             return True
@@ -662,7 +661,7 @@ class Tidal(BaseConfig[ModelToken], metaclass=SingletonMeta):
         Returns:
             bool: True if the user is logged in with a valid token.
         """
-        from tidal_dl_ng.helper.tidal_auth import (
+        from tidal_dl_ng.helper.tidal_auth.auth import (
             get_valid_token_sync,
             run_device_authorization_flow_sync,
             verify_existing_token_sync,

@@ -1,7 +1,8 @@
 """Utilities for extracting and formatting metadata from TIDAL objects."""
 
-from contextlib import suppress
 from typing import cast
+
+from contextlib import suppress
 
 
 def _convert_list_to_str(value: list[object] | tuple[object, ...]) -> str:

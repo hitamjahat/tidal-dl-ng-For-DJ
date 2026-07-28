@@ -7,9 +7,10 @@ can keep accessing `self.settings`, `self.params`, `self.session`, and
 the file-writing helpers defined on `Download`.
 """
 
+from typing import Any, cast
+
 import contextlib
 import pathlib
-from typing import Any, cast
 
 from requests.exceptions import RequestException
 from tidalapi.exceptions import TooManyRequests

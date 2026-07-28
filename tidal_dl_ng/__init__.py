@@ -6,9 +6,10 @@ local ``pyproject.toml`` or the installed package metadata, and exposes
 helpers to detect the runtime environment and check for updates.
 """
 
+from typing import TypedDict, cast
+
 import importlib.metadata
 from pathlib import Path
-from typing import TypedDict, cast
 from urllib.parse import urlparse
 
 import requests

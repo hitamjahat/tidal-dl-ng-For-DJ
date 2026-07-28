@@ -1,5 +1,4 @@
-"""
-test_download_duplicate_prevention.py
+"""test_download_duplicate_prevention.py
 
 Test suite for download duplicate prevention functionality.
 

@@ -8,13 +8,14 @@ This module provides:
 
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 import os
 import threading
 import time
 from dataclasses import dataclass, field
 from logging.handlers import RotatingFileHandler
-from typing import Any
 from uuid import uuid4
 
 from tidal_dl_ng.helper.path import path_config_base, path_file_log

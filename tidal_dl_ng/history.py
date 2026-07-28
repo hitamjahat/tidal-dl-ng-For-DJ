@@ -5,6 +5,8 @@ Classes:
         with atomic JSON operations.
 """
 
+from typing import TypedDict, cast
+
 import json
 import logging
 import shutil
@@ -14,7 +16,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
-from typing import TypedDict, cast
 
 from tidal_dl_ng.helper.decorator import SingletonMeta
 from tidal_dl_ng.helper.path import path_config_base

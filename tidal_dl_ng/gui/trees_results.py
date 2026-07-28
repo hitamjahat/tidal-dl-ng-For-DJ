@@ -3,10 +3,11 @@
 Handles tree view population and results display.
 """
 
+from typing import TYPE_CHECKING, Any, cast
+
 import contextlib
 import math
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any, cast
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from tidalapi.album import Album
@@ -51,18 +52,18 @@ class TreesResultsMixin:
     tr_results: QtWidgets.QTreeView
     model_tr_results: QtGui.QStandardItemModel
     proxy_tr_results: HumanProxyModel
-    history_service: "HistoryService"
+    history_service: HistoryService
     thread_it: Any
     s_spinner_start: Any
     s_spinner_stop: Any
-    tidal: "Tidal"
+    tidal: Tidal
     tr_lists_user: QtWidgets.QTreeWidget
-    search_manager: "GuiSearchManager"
+    search_manager: GuiSearchManager
     s_pb_reload_status: Any
     s_populate_tree_lists: Any
     s_tr_results_add_top_level_item: Any
-    info_tab_widget: "InfoTabWidget"
-    cover_manager: "CoverManager"
+    info_tab_widget: InfoTabWidget
+    cover_manager: CoverManager
 
     def handle_filter_activated(self) -> None:
         """Handle activation of filter headers in the results tree."""
@@ -197,7 +198,7 @@ class TreesResultsMixin:
 
     def list_items_show_result(
         self,
-        media_list: "MediaList" = None,
+        media_list: MediaList = None,
         point: QtCore.QPoint | None = None,
         parent: QtGui.QStandardItem | None = None,
         favorite_function: Callable[..., object] | None = None,

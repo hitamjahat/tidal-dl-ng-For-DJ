@@ -8,9 +8,10 @@ mixins without resorting to ``# type: ignore`` comments, this protocol
 declares the common surface that every mixin relies on.
 """
 
+from typing import Protocol
+
 import logging
 import pathlib
-from typing import Protocol
 
 from tidalapi.album import Album
 from tidalapi.media import Stream, Track, Video

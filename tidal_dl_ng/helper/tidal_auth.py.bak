@@ -149,16 +149,16 @@ MAX_PROXY_CANDIDATES: int = 10
 _PROXY_TEST_CONCURRENCY: int = 5
 
 #: Whether to use proxies for HTTP requests.
-USE_PROXIES: bool = os.getenv("USE_PROXIES", "False").lower() in {
+USE_PROXIES: bool = os.getenv("USE_PROXIES", "False").lower() in (
     "true",
     "1",
     "yes",
-}
+)
 
 #: Whether to rotate proxies on each token refresh.
 ROTATE_PROXIES_ON_REFRESH: bool = os.getenv(
     "ROTATE_PROXIES_ON_REFRESH", "False"
-).lower() in {"true", "1", "yes"}
+).lower() in ("true", "1", "yes")
 
 #: Path to the proxies file.
 PROXIES_FILE: str = os.getenv("PROXIES_FILE", "proxies.txt")
@@ -166,7 +166,7 @@ PROXIES_FILE: str = os.getenv("PROXIES_FILE", "proxies.txt")
 #: Whether to fall back to direct connection if no proxy is available.
 FALLBACK_TO_DIRECT_CONNECTION: bool = os.getenv(
     "FALLBACK_TO_DIRECT_CONNECTION", "False"
-).lower() in {"true", "1", "yes"}
+).lower() in ("true", "1", "yes")
 
 #: Maximum retries for proxy-based requests.
 MAX_RETRIES: int = max(1, int(os.getenv("MAX_RETRIES", "2")))
@@ -285,11 +285,11 @@ def _api_headers(access_token: str) -> dict[str, str]:
 
 
 #: Whether to log upstream responses at DEBUG level (dev mode).
-DEV_MODE: bool = os.getenv("DEV_MODE", "False").lower() in {
+DEV_MODE: bool = os.getenv("DEV_MODE", "False").lower() in (
     "true",
     "1",
     "yes",
-}
+)
 
 
 def _build_http_client(
@@ -365,7 +365,8 @@ async def _filter_proxy_candidates(
         list[str]: Filtered candidates, limited to MAX_PROXY_CANDIDATES.
     """
     if avoid_proxy:
-        if not (candidates := [p for p in shuffled if p != avoid_proxy]):
+        candidates = [p for p in shuffled if p != avoid_proxy]
+        if not candidates:
             candidates = shuffled
     else:
         candidates = shuffled
@@ -443,10 +444,7 @@ async def update_global_client(
                 msg = "No working proxies available"
                 raise RuntimeError(msg)
 
-        if (
-            _http_client[0] is not None
-            and _http_client_proxy_url[0] == proxy_url
-        ):
+        if _http_client[0] and _http_client_proxy_url[0] == proxy_url:
             return
 
         new_client = _build_http_client(proxy_url)
@@ -487,10 +485,10 @@ async def get_http_client() -> httpx.AsyncClient:
                     proxy_url = await get_working_proxy()
                 _http_client[0] = _build_http_client(proxy_url)
                 _http_client_proxy_url[0] = proxy_url
-    if (client_opt := _http_client[0]) is None:
+    if _http_client[0] is None:
         msg = "HTTP client is not initialized"
         raise RuntimeError(msg)
-    return client_opt
+    return _http_client[0]
 
 
 def _build_cred_entry(
@@ -542,21 +540,20 @@ def load_tokens() -> list[TokenEntry]:
 
     if TOKEN_FILE.exists():
         with TOKEN_FILE.open(encoding="utf-8") as f:
-            data: Any = json.load(f)
+            data = json.load(f)
             if isinstance(data, dict):
                 data = [data]
 
             if isinstance(data, list):
-                for item in data:
-                    if not isinstance(item, dict):
+                for entry in data:
+                    if not isinstance(entry, dict):
                         continue
-                    item_dict = cast("dict[str, Any]", item)
                     cred = _build_cred_entry(
-                        cast("TokenEntry", item_dict),
+                        cast("TokenEntry", entry),
                         HIFI_REQUEST_CLIENT_ID,
                         HIFI_REQUEST_CLIENT_SECRET,
                     )
-                    if cred.get("refresh_token"):
+                    if cred["refresh_token"]:
                         creds.append(cred)
 
     # Add env var credential if available and unique
@@ -577,7 +574,7 @@ def load_tokens() -> list[TokenEntry]:
             userID=env_user_id or "",
             token_type=_TOKEN_TYPE_BEARER,
         )
-        if not any(c.get("refresh_token") == env_refresh for c in creds):
+        if not any(c["refresh_token"] == env_refresh for c in creds):
             creds.append(env_cred)
 
     return creds
@@ -718,7 +715,7 @@ async def refresh_access_token(
                 try:
                     error_data = response.json()
                     error = error_data.get("error")
-                    if error in {"invalid_client", "invalid_grant"}:
+                    if error in ("invalid_client", "invalid_grant"):
                         error_desc = str(
                             error_data.get(
                                 "error_description", "Unknown error"
@@ -734,7 +731,7 @@ async def refresh_access_token(
                     pass
 
             response.raise_for_status()
-            return cast("TokenEntry", response.json())
+            return response.json()
         except httpx.RequestError:
             if USE_PROXIES and attempt < max_retries - 1:
                 await update_global_client(force_new_proxy=True)
@@ -778,7 +775,7 @@ async def verify_token(
     client = await get_http_client()
     response = await client.get(url, headers=headers)
     response.raise_for_status()
-    return cast("TokenEntry", response.json())
+    return response.json()
 
 
 async def run_device_authorization_flow(
@@ -847,15 +844,13 @@ async def run_device_authorization_flow(
         HIFI_TOKEN_URL, cast("TokenEntry", token_data), basic
     )
 
-    access_token = str(auth_response.get("access_token", ""))
-    refresh_token = str(auth_response.get("refresh_token", ""))
+    access_token = str(auth_response["access_token"])
+    refresh_token = str(auth_response["refresh_token"])
     _auth_resp: TokenResponse = auth_response
     _user_info: Any = _auth_resp.get("user")
-    user_id = ""
-    if isinstance(_user_info, dict):
-        user_info_dict = cast("dict[str, Any]", _user_info)
-        if (user_id_val := user_info_dict.get("userId", "")) is not None:
-            user_id = str(user_id_val)
+    user_id = str(
+        _user_info.get("userId", "") if isinstance(_user_info, dict) else ""
+    )
 
     entry = TokenEntry(
         client_id=HIFI_REQUEST_CLIENT_ID,
@@ -927,16 +922,18 @@ async def get_valid_token(
         tuple[str, TokenEntry] | None: A tuple of (access_token,
             token_entry), or None if no valid token is available.
     """
-    if (entry := find_token_entry(client_id)) is None:
+    entry = find_token_entry(client_id)
+    if entry is None:
         return None
 
     access_token = str(entry.get("access_token", ""))
     if not access_token or force_refresh:
-        if not (refresh_token := str(entry.get("refresh_token", ""))):
+        refresh_token = str(entry.get("refresh_token", ""))
+        if not refresh_token:
             return None
         try:
             refreshed = await refresh_access_token(refresh_token)
-            access_token = str(refreshed.get("access_token", ""))
+            access_token = str(refreshed["access_token"])
             entry["access_token"] = access_token
             entry["refresh_token"] = str(
                 refreshed.get("refresh_token", refresh_token)
@@ -944,9 +941,7 @@ async def get_valid_token(
             entry["expires_in"] = int(refreshed.get("expires_in", 0))
             entry["created_at"] = datetime.now(UTC).isoformat()
             save_token_entry(entry)
-        except httpx.HTTPError:
-            return None
-        except KeyError:
+        except (httpx.HTTPError, KeyError):
             return None
 
     return access_token, entry
@@ -1037,7 +1032,8 @@ def _lock_for_cred(
         asyncio.Lock: A lock specific to this credential.
     """
     key = f"{cred.get('client_id', '')}:{cred.get('refresh_token', '')}"
-    if (lock := _refresh_locks.get(key)) is None:
+    lock = _refresh_locks.get(key)
+    if lock is None:
         lock = asyncio.Lock()
         _refresh_locks[key] = lock
     return lock
@@ -1065,14 +1061,14 @@ async def _refresh_cred_token(
             response = await client.post(
                 HIFI_TOKEN_URL,
                 data={
-                    "client_id": str(cred.get("client_id", "")),
-                    "refresh_token": str(cred.get("refresh_token", "")),
+                    "client_id": str(cred["client_id"]),
+                    "refresh_token": str(cred["refresh_token"]),
                     "grant_type": HIFI_OAUTH_GRANT_TYPE_REFRESH,
                     "scope": HIFI_OAUTH_SCOPE,
                 },
                 auth=(
-                    str(cred.get("client_id", "")),
-                    str(cred.get("client_secret", "")),
+                    str(cred["client_id"]),
+                    str(cred["client_secret"]),
                 ),
             )
 
@@ -1080,7 +1076,7 @@ async def _refresh_cred_token(
                 try:
                     error_data = response.json()
                     error = error_data.get("error")
-                    if error in {"invalid_client", "invalid_grant"}:
+                    if error in ("invalid_client", "invalid_grant"):
                         error_desc = str(
                             error_data.get(
                                 "error_description", "Unknown error"
@@ -1116,7 +1112,8 @@ async def _refresh_cred_token(
                 await update_global_client(force_new_proxy=True)
                 continue
             raise
-        return new_token, cred
+        else:
+            return new_token, cred
     msg = "Token refresh failed after all retries"
     raise RuntimeError(msg)  # pragma: no cover
 
@@ -1146,7 +1143,7 @@ async def get_tidal_token_for_cred(
             cred.get("access_token")
             and cred.get("expires_at", 0) > time.time()
         ):
-            return str(cred.get("access_token", "")), cred
+            return str(cred["access_token"]), cred
 
         if USE_PROXIES and ROTATE_PROXIES_ON_REFRESH:
             await update_global_client(force_new_proxy=True)
@@ -1184,10 +1181,11 @@ async def _compute_rate_limit_delay(
         _RATE_LIMIT_BASE_DELAY * (2**attempt),
         _RATE_LIMIT_MAX_DELAY,
     )
-    if retry_after := response.headers.get("Retry-After"):
+    retry_after = response.headers.get("Retry-After")
+    if retry_after:
         with contextlib.suppress(ValueError):
-            delay = float(min(delay, max(float(retry_after), 0.0)))
-    return float(min(delay, _RATE_LIMIT_MAX_DELAY))
+            delay = min(delay, max(float(retry_after), 0))
+    return min(delay, _RATE_LIMIT_MAX_DELAY)
 
 
 async def _handle_404_retry(
@@ -1357,3 +1355,21 @@ async def make_request(
         "version": "2.10",
         "data": response.json(),
     }
+
+
+def _extract_uuid_from_tidal_url(href: str) -> str | None:
+    """Extract and reconstruct a hyphenated UUID from a Tidal URL.
+
+    This function is kept for backward compatibility and may be
+    used by external callers or future features.
+
+    Args:
+        href: A Tidal resource URL containing UUID path segments.
+
+    Returns:
+        str | None: The reconstructed UUID, or None if not found.
+    """
+    parts = href.split("/") if href else []
+    if len(parts) < _UUID_SEGMENT_COUNT:
+        return None
+    return "-".join(parts[_UUID_SEGMENT_START:_UUID_SEGMENT_END])

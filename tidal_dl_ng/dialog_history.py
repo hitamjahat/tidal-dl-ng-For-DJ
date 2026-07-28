@@ -3,10 +3,11 @@
 Dialog for viewing and managing download history.
 """
 
+from typing import Any
+
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtCore import QUrl

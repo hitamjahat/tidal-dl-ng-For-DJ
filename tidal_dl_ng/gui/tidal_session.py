@@ -5,8 +5,9 @@ Handles Tidal authentication and session management.
 
 from __future__ import annotations
 
-import sys
 from typing import TYPE_CHECKING, Any, cast
+
+import sys
 
 from requests.exceptions import RequestException
 
@@ -130,7 +131,7 @@ class TidalSessionMixin:
         parent = cast("QtWidgets.QWidget", self)
 
         while True:
-            from tidal_dl_ng.helper.tidal_auth import (
+            from tidal_dl_ng.helper.tidal_auth.auth import (
                 run_device_authorization_flow_sync,
             )
 
